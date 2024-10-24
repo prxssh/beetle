@@ -99,6 +99,7 @@ defmodule Beetle.Server.ClientHandler do
   @impl true
   def handle_info({:tcp, socket, packet}, socket) do
     dbg(packet)
+
     case TCP.write(packet, socket) do
       :ok ->
         {:noreply, socket}
