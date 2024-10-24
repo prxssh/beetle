@@ -10,7 +10,6 @@ defmodule Beetle.Server.Core do
   - Automatic recovery mechanism of failed accepts
   - Connection tracking and management
   """
-
   use GenServer
 
   require Logger
@@ -68,7 +67,6 @@ defmodule Beetle.Server.ClientHandler do
   @moduledoc """
   GenServer implementation for handling individual TCP client connections.
   """
-
   use GenServer
 
   require Logger
@@ -77,6 +75,14 @@ defmodule Beetle.Server.ClientHandler do
 
   # === Client
 
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      restart: :temporary
+    }
+  end
+
   def start_link(socket: client_socket),
     do: GenServer.start_link(__MODULE__, client_socket)
 
@@ -84,6 +90,7 @@ defmodule Beetle.Server.ClientHandler do
 
   @impl true
   def init(client_socket) do
+    dbg(client_socket)
     Logger.notice("#{__MODULE__}: client connected")
 
     {:ok, client_socket}
@@ -91,6 +98,7 @@ defmodule Beetle.Server.ClientHandler do
 
   @impl true
   def handle_info({:tcp, socket, packet}, socket) do
+    dbg(packet)
     case TCP.write(packet, socket) do
       :ok ->
         {:noreply, socket}
@@ -104,6 +112,7 @@ defmodule Beetle.Server.ClientHandler do
 
   @impl true
   def handle_info({:tcp_closed, socket}, socket) do
+    dbg(socket)
     Logger.error("#{__MODULE__}: client disconnected")
 
     {:stop, :normal, socket}

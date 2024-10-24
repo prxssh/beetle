@@ -20,7 +20,7 @@ defmodule Beetle.Server.TCP do
 
   alias :gen_tcp, as: GenTCP
 
-  @default_listen_opts [:binary, reuseaddr: true, active: false, backlog: 1024, packet: :line]
+  @default_listen_opts [:binary, reuseaddr: true, active: false, backlog: 1024, packet: :raw]
 
   @doc """
   Starts a TCP server listening on the specified port and with the provided
