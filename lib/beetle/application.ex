@@ -8,12 +8,10 @@ defmodule Beetle.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: Beetle.Worker.start_link(arg)
-      # {Beetle.Worker, arg}
+      {DynamicSupervisor, strategy: :one_for_one, name: Beetle.ClientSupervisor},
+      {Beetle.Server.Core, []}
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Beetle.Supervisor]
     Supervisor.start_link(children, opts)
   end
