@@ -10,8 +10,6 @@ defmodule Beetle.Parser.Decoder do
   defp decode_recursive(<<>>, acc), do: {:ok, Enum.reverse(acc)}
 
   defp decode_recursive(data, acc) do
-    dbg(acc)
-
     data
     |> do_decode()
     |> case do
