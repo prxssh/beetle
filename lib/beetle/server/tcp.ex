@@ -26,7 +26,7 @@ defmodule Beetle.Server.TCP do
   Starts a TCP server listening on the specified port and with the provided
   options or using default options defined above.
   """
-  @spec listen(pos_integer(), Keyword.t()) :: {:ok, term()} | {:error, any()}
+  @spec listen(pos_integer(), Keyword.t()) :: {:ok, port()} | {:error, any()}
   def listen(port, opts \\ @default_listen_opts) do
     port
     |> GenTCP.listen(opts)
@@ -41,7 +41,7 @@ defmodule Beetle.Server.TCP do
 
   Blocks until a client connects or error occurs.
   """
-  @spec accept(term()) :: {:ok, term()} | {:error, any()}
+  @spec accept(term()) :: {:ok, port()} | {:error, any()}
   def accept(socket) do
     socket
     |> GenTCP.accept()
@@ -58,7 +58,7 @@ defmodule Beetle.Server.TCP do
   socket is closed. In active mode, data is delivered as messages to the
   process.
   """
-  @spec read(term()) :: {:ok, String.t() | binary() | term()} | {:error, any()}
+  @spec read(port()) :: {:ok, String.t() | binary() | term()} | {:error, any()}
   def read(socket) do
     socket
     |> GenTCP.recv(0)
@@ -71,7 +71,7 @@ defmodule Beetle.Server.TCP do
   @doc """
   Writes data to the client socket.
   """
-  @spec write(binary(), term()) :: :ok | {:error, any()}
+  @spec write(binary(), port()) :: :ok | {:error, any()}
   def write(packet, socket), do: GenTCP.send(socket, packet)
 
   @doc """
@@ -79,5 +79,33 @@ defmodule Beetle.Server.TCP do
 
   This will close a listen socket or a client socket.
   """
+  @spec close(port()) :: :ok
   def close(socket), do: GenTCP.close(socket)
+
+  @doc """
+  Transfers the control of a socket to another process and sets it to active
+  mode.
+
+  In Erlang/Elixir, each socket has a controlling process which receives all
+  messages from that socket. By default, this is the process that created the
+  socket. When building a TCP server, we often need to transfer control to
+  another process, typically a client handler.
+
+  After transferring control, the socket is set to active mode, which means: 
+  - Messages from the socket are automatically delivered to the controlling
+  process.
+  - Messages come in the format: 
+    * `{:tcp, socket, data}`: for received data
+    * `{:tcp_closed, socket}`: when client closes the connection
+    * `{:tcp_error, socket, reason}`: when error occurs
+  """
+  @spec set_controlling_process(port(), pid()) :: :ok | {:error, any()}
+  def set_controlling_process(socket, pid) do
+    with :ok <- GenTCP.controlling_process(socket, pid),
+         :ok <- :inet.setopts(socket, active: true) do
+      :ok
+    else
+      error -> error
+    end
+  end
 end
