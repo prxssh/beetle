@@ -15,28 +15,44 @@ defmodule Beetle.Server.Core do
   require Logger
 
   alias Beetle.Server.TCP
+  alias Beetle.Config.Core, as: Config
 
   @client_supervisor Beetle.ClientSupervisor
+  @name __MODULE__
 
   # === Client
 
-  def start_link(_),
-    do: GenServer.start_link(__MODULE__, %{socket: %{}, clients: []}, name: __MODULE__)
+  def start_link(config_path), do: GenServer.start_link(@name, config_path, name: @name)
 
   # === Server
 
   @impl true
-  def init(state) do
-    case TCP.listen(6969) do
+  def init(config_path) do
+    config_path
+    |> Config.load()
+    |> case do
+      {:ok, config} ->
+        {:ok, %{socket: %{}, clients: [], config: config}, {:continue, :start_tcp_server}}
+
+      {:error, reason} ->
+        {:stop, reason}
+    end
+  end
+
+  @impl true
+  def handle_continue(:start_tcp_server, state) do
+    state.config.port
+    |> TCP.listen()
+    |> case do
       {:ok, socket} ->
         Logger.info("#{__MODULE__}: started tcp server on 6969")
 
-        {:ok, %{state | socket: socket}, {:continue, :accept}}
+        {:noreply, %{state | socket: socket}, {:continue, :accept}}
 
       {:error, reason} ->
         Logger.error("#{__MODULE__}: failed to start tcp server: #{inspect(reason)}")
 
-        {:stop, reason}
+        {:stop, reason, state}
     end
   end
 
@@ -79,7 +95,7 @@ defmodule Beetle.Server.ClientHandler do
     %{
       id: __MODULE__,
       start: {__MODULE__, :start_link, [opts]},
-      restart: :temporary
+      restart: :transient
     }
   end
 
@@ -90,7 +106,6 @@ defmodule Beetle.Server.ClientHandler do
 
   @impl true
   def init(client_socket) do
-    dbg(client_socket)
     Logger.notice("#{__MODULE__}: client connected")
 
     {:ok, client_socket}
@@ -98,8 +113,6 @@ defmodule Beetle.Server.ClientHandler do
 
   @impl true
   def handle_info({:tcp, socket, packet}, socket) do
-    dbg(packet)
-
     case TCP.write(packet, socket) do
       :ok ->
         {:noreply, socket}
@@ -113,7 +126,6 @@ defmodule Beetle.Server.ClientHandler do
 
   @impl true
   def handle_info({:tcp_closed, socket}, socket) do
-    dbg(socket)
     Logger.error("#{__MODULE__}: client disconnected")
 
     {:stop, :normal, socket}
