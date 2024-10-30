@@ -2,6 +2,7 @@ defmodule Beetle.Config.Core do
   @moduledoc """
   Configuration parser and manager for BeetleDB.
   """
+  import Beetle.Utils
 
   @type t :: %__MODULE__{
           port: integer(),
@@ -85,16 +86,5 @@ defmodule Beetle.Config.Core do
     end
   end
 
-  defp apply_config("append_only", value, config) do
-    value =
-      value
-      |> String.downcase()
-      |> case do
-        "true" -> true
-        "false" -> false
-        _ -> false
-      end
-
-    %{config | append_only: value}
-  end
+  defp apply_config("append_only", value, config), do: %{config | append_only: to_boolean(value)}
 end
