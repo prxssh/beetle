@@ -1,4 +1,4 @@
-defmodule Beetle.Config.Core do
+defmodule Beetle.Config do
   @moduledoc """
   Configuration parser and manager for BeetleDB.
   """

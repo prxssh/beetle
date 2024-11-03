@@ -14,11 +14,11 @@ defmodule Beetle.Server.Core do
 
   require Logger
 
+  alias Beetle.Config
   alias Beetle.Server.TCP
-  alias Beetle.Config.Core, as: Config
 
-  @client_supervisor Beetle.ClientSupervisor
   @name __MODULE__
+  @client_supervisor Beetle.ClientSupervisor
 
   # === Client
 
