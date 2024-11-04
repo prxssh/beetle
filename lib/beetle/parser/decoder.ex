@@ -3,7 +3,7 @@ defmodule Beetle.Parser.Decoder do
   Decoder for the Redis Serialization Protocol (RESP).
   """
 
-  @spec decode(binary()) :: {:ok, [any()]} | {:error, String.t() | Atom.t()}
+  @spec decode(binary()) :: {:ok, [[String.t()]]} | {:error, String.t() | Atom.t()}
   def decode(data) when is_binary(data), do: decode_recursive(data, [])
 
   @spec decode_recursive(binary(), [any()]) :: {:ok, [any()]} | {:error, String.t() | Atom.t()}

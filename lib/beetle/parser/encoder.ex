@@ -8,7 +8,7 @@ defmodule Beetle.Parser.Encoder do
   def encode(data) when is_binary(data), do: encode_string(data)
   def encode(data) when is_integer(data), do: encode_integer(data)
 
-  defp encode_error(data), do: "-ERR " <> data <> "\r\n"
+  defp encode_error(data), do: data <> "\r\n"
 
   defp encode_array(data) do
     len = length(data)

@@ -9,7 +9,7 @@ defmodule Beetle.Application do
   def start(_type, _args) do
     children = [
       {DynamicSupervisor, strategy: :one_for_one, name: Beetle.ClientSupervisor},
-      {Beetle.Server.Core, []}
+      {Beetle.Server.ConnectionManager, []}
     ]
 
     opts = [strategy: :one_for_one, name: Beetle.Supervisor]
