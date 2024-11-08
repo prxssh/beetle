@@ -8,7 +8,7 @@ defmodule Beetle.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      {DynamicSupervisor, strategy: :one_for_one, name: Beetle.ClientSupervisor},
+      {DynamicSupervisor, strategy: :one_for_one, name: Beetle.DynamicSupervisor},
       {Beetle.Server.ConnectionManager, []}
     ]
 

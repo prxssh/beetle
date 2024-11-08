@@ -18,16 +18,16 @@ defmodule Beetle.Command.Registry do
   }
 
   @spec handle([Engine.t()]) :: {:ok, any()} | {:error, String.t()}
-  def handle(commands) do
+  def handle(command) do
     @command_types
     |> Map.get(command)
     |> case do
       nil ->
-        invalid_command(command, args)
+        invalid_command(command, command.args)
 
       type ->
         module = Map.fetch!(@command_modules, type)
-        module.handle(command, args)
+        module.handle(command, command.args)
     end
   end
 

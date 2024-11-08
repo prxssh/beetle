@@ -18,7 +18,7 @@ defmodule Beetle.Server.ConnectionManager do
   alias Beetle.Server.TCP
 
   @name __MODULE__
-  @client_supervisor Beetle.ClientSupervisor
+  @client_supervisor Beetle.DynamicSupervisor
 
   # === Client
 
