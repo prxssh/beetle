@@ -53,8 +53,12 @@ defmodule Beetle.Storage.Bitcask.Operations do
   @doc """
   Delete a key from a Bitcask datastore.
   """
-  @spec delete(Store.t(), String.t()) :: :ok | {:error, any()}
+  @spec delete(Store.t(), String.t()) :: {:ok, Store.t()} | {:error, any()}
   def delete(store, key) do
+    case put(store, key, nil) do
+      {:ok, updated_store} -> {:ok, updated_store}
+      error -> error
+    end
   end
 
   @doc """
