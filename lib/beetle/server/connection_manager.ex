@@ -16,34 +16,30 @@ defmodule Beetle.Server.ConnectionManager do
 
   alias Beetle.Config
   alias Beetle.Server.TCP
+  alias Beetle.Config.State, as: Config
 
   @name __MODULE__
   @client_supervisor Beetle.DynamicSupervisor
 
   # === Client
 
-  @spec start_link(String.t()) :: {:ok, pid()} | {:error, any()}
-  def start_link(config_path), do: GenServer.start_link(@name, config_path, name: @name)
+  def start_link(_), do: GenServer.start_link(@name, nil, name: @name)
 
   # === Server
 
   @impl true
-  def init(config_path) do
-    config_path
-    |> Config.load()
-    |> case do
-      {:ok, config} ->
-        state = %{socket: %{}, clients: [], config: config}
-        {:ok, state, {:continue, :start_tcp_server}}
+  def init(_) do
+    {host, port} = {Config.get_host(), Config.get_port()}
+    dbg(host)
+    dbg(port)
+    state = %{socket: %{}, clients: [], opts: %{host: host, port: port}}
 
-      {:error, reason} ->
-        {:stop, reason}
-    end
+    {:ok, state, {:continue, :start_tcp_server}}
   end
 
   @impl true
   def handle_continue(:start_tcp_server, state) do
-    state.config.port
+    state.opts.port
     |> TCP.listen()
     |> case do
       {:ok, socket} ->

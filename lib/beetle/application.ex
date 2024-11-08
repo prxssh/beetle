@@ -7,8 +7,11 @@ defmodule Beetle.Application do
 
   @impl true
   def start(_type, _args) do
+    config_path = System.fetch_env!("BEETLE_CONFIG")
+
     children = [
       {DynamicSupervisor, strategy: :one_for_one, name: Beetle.DynamicSupervisor},
+      {Beetle.Config.State, config_path},
       {Beetle.Server.ConnectionManager, []}
     ]
 

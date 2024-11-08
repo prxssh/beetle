@@ -39,6 +39,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
 
   @type entry_t :: %{
           crc: integer(),
+          expiration: non_neg_integer(),
           timestamp: pos_integer(),
           key_size: pos_integer(),
           value_size: pos_integer(),
@@ -81,7 +82,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   @spec get_all_datafiles(String.t()) :: [pos_integer()]
   def get_all_datafiles(dir) do
     dir
-    |> Path.join("db_*.beetle")
+    |> Path.join("beetle_*.db")
     |> Path.wildcard()
     |> Enum.map(fn path -> path |> Path.basename() |> extract_file_id() end)
   end
@@ -90,7 +91,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   Generates the standard filename for a datafile given its file id.
   """
   @spec get_filename(pos_integer()) :: String.t()
-  def get_filename(file_id), do: "db_#{file_id}.beetle"
+  def get_filename(file_id), do: "beetle_#{file_id}.db"
 
   @doc """
   Flushes any pending writes from buffers to the disk
@@ -114,7 +115,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   Positions the file pointer at the specified offset and reads the given number
   of bytes. The read value is then parsed and validated before being returned.
   """
-  @spec get(t(), pos_integer(), pos_integer()) :: {:ok, binary()} | {:error, term()}
+  @spec get(t(), pos_integer(), pos_integer()) :: {:ok, binary()} | {:error, Atom.t()}
   def get(datafile, offset, size) do
     with {:ok, _} <- :file.position(datafile.reader, offset),
          {:ok, value} <- :file.read(datafile.reader, size) do
@@ -127,14 +128,14 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   @doc """
   Writes a key-value pair to the datafile with timestamp and CRC validation.
   """
-  @spec put(t(), String.t(), any()) :: {:ok, pos_integer()} | {:error, any()}
-  def put(datafile, key, value) do
+  @spec put(t(), String.t(), any(), non_neg_integer()) :: {:ok, pos_integer()} | {:error, any()}
+  def put(datafile, key, value, expiration \\ 0) do
     timestamp = System.system_time(:second)
     {key_size, value_size} = {byte_size(key), byte_size(value)}
 
     entry =
-      <<timestamp::@size_timestamp, key_size::@size_key_size, value_size::@size_value_size,
-        key::binary, value::binary>>
+      <<timestamp::@size_timestamp, expiration::@size_timestamp, key_size::@size_key_size,
+        value_size::@size_value_size, key::binary, value::binary>>
 
     crc = :erlang.crc32(entry)
     full_entry = <<crc::32, entry::binary>>
@@ -152,26 +153,38 @@ defmodule Beetle.Storage.Bitcask.Datafile do
 
   @spec extract_file_id(String.t()) :: pos_integer() | nil
   defp extract_file_id(filename) do
-    case Regex.run(~r/^db_(\d+)\.beetle$/, filename) do
+    case Regex.run(~r/^beetle_(\d+)\.db$/, filename) do
       [_, id] -> String.to_integer(id)
       _ -> nil
     end
   end
 
+  @spec parse_and_validate_entry(binary()) :: {:ok, any()} | {:error, atom()}
   defp parse_and_validate_entry(<<crc::@size_crc, entry_data::binary>>) do
-    calculated_crc = :erlang.crc32(entry_data)
-
-    if calculated_crc == crc do
-      case entry_data do
-        <<_timestamp::@size_timestamp, key_size::@size_key_size, value_size::@size_value_size,
-          _key::binary-size(key_size), value::binary-size(value_size)>> ->
-          {:ok, value}
-
-        _ ->
-          {:error, :invalid_entry_format}
-      end
+    with true <- crc == :erlang.crc32(entry_data),
+         {:ok, value} <- get_entry(entry_data) do
+      {:ok, value}
     else
-      {:error, :crc_mismatch}
+      false -> {:error, :invalid_checksum}
+      error -> error
+    end
+  end
+
+  @spec get_entry(binary()) :: {:ok, any()} | {:error, atom()}
+  defp get_entry(<<entry_data::binary>>) do
+    expired? = fn
+      0 -> false
+      expiration -> System.system_time(:second) >= expiration
+    end
+
+    case entry_data do
+      <<_timestamp::@size_timestamp, expiration::@size_timestamp, key_size::@size_key_size,
+        value_size::@size_value_size, _key::binary-size(key_size),
+        value::binary-size(value_size)>> ->
+        if expired?.(expiration), do: {:error, :key_expired}, else: {:ok, value}
+
+      _ ->
+        {:error, :invalid_entry}
     end
   end
 end

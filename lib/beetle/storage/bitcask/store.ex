@@ -53,23 +53,22 @@ defmodule Beetle.Storage.Bitcask.Store do
   @spec load_stale_datafiles(String.t()) ::
           {:ok, %{non_neg_integer() => Datafile.t()}} | {:error, String.t()}
   defp load_stale_datafiles(storage_dir) do
-    {stale_datafiles, errors} =
-      storage_dir
-      |> Datafile.get_all_datafiles()
-      |> Enum.reduce({%{}, []}, fn file_id, {stale_datafiles, errors} ->
-        file_id
-        |> Datafile.new(storage_dir)
-        |> case do
-          {:ok, stale_datafile} ->
-            {Map.put(stale_datafiles, file_id, stale_datafile), errors}
+    storage_dir
+    |> Datafile.get_all_datafiles()
+    |> Enum.reduce_while(%{}, fn file_id, stale_datafiles ->
+      file_id
+      |> Datafile.new(storage_dir)
+      |> case do
+        {:ok, stale_datafile} ->
+          {:cont, Map.put(stale_datafiles, file_id, stale_datafile)}
 
-          {:error, reason} ->
-            {stale_datafiles, [reason | errors]}
-        end
-      end)
-
-    if Enum.empty?(errors),
-      do: {:ok, stale_datafiles},
-      else: {:error, inspect(errors)}
+        {:error, reason} ->
+          {:halt, {:error, inspect(reason)}}
+      end
+    end)
+    |> case do
+      %{} -> {:ok, %{}}
+      error -> error
+    end
   end
 end

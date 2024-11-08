@@ -31,9 +31,9 @@ defmodule Beetle.Storage.Bitcask.Operations do
   @doc """
   Store a key and value in a Bitcask datastore.
   """
-  @spec put(Store.t(), String.t(), any()) :: {:ok, Store.t()} | {:error, any()}
-  def put(store, key, value) do
-    with {:ok, offset} <- Datafile.put(store.active_datafile, key, value),
+  @spec put(Store.t(), String.t(), any(), non_neg_integer()) :: {:ok, Store.t()} | {:error, any()}
+  def put(store, key, value, expiration \\ 0) do
+    with {:ok, offset} <- Datafile.put(store.active_datafile, key, value, expiration),
          {:ok, keydir} <-
            Keydir.put(
              store.keydir,
@@ -99,7 +99,7 @@ defmodule Beetle.Storage.Bitcask.Operations do
   Also, produces hintfiles for faster startups.
   """
   @spec merge(String.t()) :: :ok | {:error, any()}
-  def merge(dir) do
+  def merge(storage_dir) do
   end
 
   @doc """

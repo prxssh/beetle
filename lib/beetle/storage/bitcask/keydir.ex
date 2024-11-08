@@ -42,7 +42,6 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   """
   @spec put(t(), binary(), file_id(), value_size(), value_pos(), timestamp()) :: {:ok, t()}
   def put(keydir, key, file_id, value_size, value_offset, timestamp) do
-    # TODO: handle if same key already exists
     {:ok, Map.put(keydir, key, {file_id, value_size, value_offset, timestamp})}
   end
 
