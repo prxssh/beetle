@@ -30,8 +30,6 @@ defmodule Beetle.Server.ConnectionManager do
   @impl true
   def init(_) do
     {host, port} = {Config.get_host(), Config.get_port()}
-    dbg(host)
-    dbg(port)
     state = %{socket: %{}, clients: [], opts: %{host: host, port: port}}
 
     {:ok, state, {:continue, :start_tcp_server}}

@@ -10,8 +10,6 @@ defmodule Beetle.Config.State do
   @module __MODULE__
 
   def start_link(config_path) do
-    dbg(config_path)
-
     config_path
     |> Parser.load()
     |> case do

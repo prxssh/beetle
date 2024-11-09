@@ -12,7 +12,8 @@ defmodule Beetle.Application do
     children = [
       {DynamicSupervisor, strategy: :one_for_one, name: Beetle.DynamicSupervisor},
       {Beetle.Config.State, config_path},
-      {Beetle.Server.ConnectionManager, []}
+      {Beetle.Server.ConnectionManager, []},
+      {Beetle.Storage.Engine, []}
     ]
 
     opts = [strategy: :one_for_one, name: Beetle.Supervisor]

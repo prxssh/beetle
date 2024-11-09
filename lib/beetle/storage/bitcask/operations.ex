@@ -8,6 +8,8 @@ defmodule Beetle.Storage.Bitcask.Operations do
     Datafile
   }
 
+  alias Beetle.Config.State, as: Config
+
   @doc """
   Retrieve a value by key from a Bitcask datastore.
   """
@@ -98,15 +100,30 @@ defmodule Beetle.Storage.Bitcask.Operations do
   Merge several data files within a Bitcask datastore into a more compact form.
   Also, produces hintfiles for faster startups.
   """
-  @spec merge(String.t()) :: :ok | {:error, any()}
-  def merge(storage_dir) do
+  @spec merge(Store.t()) :: :ok | {:error, any()}
+  def merge(store) do
   end
 
   @doc """
   Creates a new data file after the currently active data file size limit is
   breached.
   """
-  @spec log_rotation(String.t()) :: :ok | {:error, any()}
-  def log_rotation(dir) do
+  @spec log_rotation(Store.t()) :: {:ok, Store.t()} | {:error, any()}
+  def log_rotation(store) do
+    with {:ok, current_size} <- Datafile.get_file_size(store.active_datafile),
+         false <- current_size < Config.get_log_file_size(),
+         {:ok, new_datafile} <- Datafile.new(store.file_id + 1, Config.get_storage_directory()),
+         stale_datafiles <- %{store.stale_datafiles | store.file_id => store.active_datafile} do
+      {:ok,
+       %{
+         store
+         | active_datafile: new_datafile,
+           stale_datafiles: stale_datafiles,
+           file_id: store.file_id + 1
+       }}
+    else
+      true -> {:ok, store}
+      error -> error
+    end
   end
 end

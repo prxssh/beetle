@@ -2,8 +2,6 @@ defmodule Beetle.Config.Parser do
   @moduledoc """
   Configuration parser for BeetleDB.
   """
-  import Beetle.Utils
-
   @type t :: %__MODULE__{
           port: integer(),
           host: String.t(),
@@ -27,8 +25,6 @@ defmodule Beetle.Config.Parser do
             merge_interval: :timer.seconds(60)
 
   @configuration_size "beetle.conf"
-  @valid_time_units ["s", "min", "hr"]
-  @valid_size_units ["kb", "mb", "gb", "tb"]
 
   @doc """
   Loads configuration for a file path.
@@ -41,7 +37,7 @@ defmodule Beetle.Config.Parser do
     |> Path.join(@configuration_size)
     |> File.read()
     |> case do
-      {:ok, content} -> parse_config(content)
+      {:ok, content} -> {:ok, parse_config(content)}
       {:error, :enoent} -> {:ok, load_default_config()}
       {:error, reason} -> {:error, "error loading config: #{inspect(reason)}"}
     end
@@ -86,7 +82,7 @@ defmodule Beetle.Config.Parser do
     end
   end
 
-  defp apply_config("host", value, config), do: %{config | bind: value}
+  defp apply_config("host", value, config), do: %{config | host: value}
   defp apply_config("storage_directory", value, config), do: %{config | storage_directory: value}
 
   defp apply_config("merge_interval", value, config) do

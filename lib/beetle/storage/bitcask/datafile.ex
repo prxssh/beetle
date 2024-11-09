@@ -65,8 +65,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
 
     with {:ok, writer} <- :file.open(file_path, [:append, :binary, :raw]),
          {:ok, reader} <- :file.open(file_path, [:read, :binary, :raw]),
-         {:ok, {:file_info, size, _, _, _, _, _, _, _, _, _, _, _, _}} <-
-           :file.read_file_info(writer) do
+         {:ok, size} <- get_file_size(writer) do
       {:ok, %__MODULE__{file_id: file_id, writer: writer, reader: reader, offset: size}}
     else
       {:error, reason} -> {:error, inspect(reason)}
@@ -92,6 +91,16 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   """
   @spec get_filename(pos_integer()) :: String.t()
   def get_filename(file_id), do: "beetle_#{file_id}.db"
+
+  @doc """
+  Get the file size
+  """
+  def get_file_size(file) do
+    case :file.read_file_info(file) do
+      {:ok, {:file_info, size, _, _, _, _, _, _, _, _, _, _, _, _}} -> {:ok, size}
+      error -> error
+    end
+  end
 
   @doc """
   Flushes any pending writes from buffers to the disk
@@ -143,6 +152,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
 
     case :file.write(datafile.writer, full_entry) do
       :ok ->
+        dbg(datafile.offset)
         new_offset = datafile.offset + entry_size
         {:ok, datafile.offset + new_offset}
 

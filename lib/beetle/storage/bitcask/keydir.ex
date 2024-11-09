@@ -60,9 +60,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   Removes an entry from the keydir.
   """
   @spec delete(t(), binary()) :: t()
-  def delete(keydir, key) do
-    Map.delete(keydir, key)
-  end
+  def delete(keydir, key), do: Map.delete(keydir, key)
 
   @doc """
   Writes the keydir to a hints file.
@@ -70,12 +68,11 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   @spec write_hints_file(t(), Path.t()) :: :ok | {:error, term()}
   def write_hints_file(keydir, path) do
     encoded = :erlang.term_to_binary(keydir)
-    File.write(path, encoded)
+    :file.write(path, encoded)
   end
 
-  # TODO: take config from agent
+  @spec close(t()) :: :ok | {:error, any()}
   def close(keydir) do
-    :ok
   end
 
   @spec load_hints_file(String.t()) :: {:ok, t()} | {:error, any()}
