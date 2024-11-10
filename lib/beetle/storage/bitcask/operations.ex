@@ -17,13 +17,13 @@ defmodule Beetle.Storage.Bitcask.Operations do
   def get(store, key) do
     fetch_datafile = fn file_id ->
       if store.file_id != file_id,
-        do: store.stale_datafiles.file_id,
+        do: Map.get(store.stale_datafiles, file_id),
         else: store.active_datafile
     end
 
-    with {:ok, {file_id, value_size, value_pos, _timestamp}} <- Keydir.get(store.keydir, key),
+    with {:ok, {file_id, value_size, value_pos, _}} <- Keydir.get(store.keydir, key),
          datafile <- fetch_datafile.(file_id),
-         {:ok, value} <- Datafile.get(datafile, value_size, value_pos) do
+         {:ok, value} <- Datafile.get(datafile, value_pos, value_size) do
       {:ok, value}
     else
       error -> error

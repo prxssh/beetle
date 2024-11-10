@@ -17,6 +17,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   - `timestamp`: timestamp at which the value was written
   """
   alias Beetle.Config.State, as: Config
+  alias Beetle.Storage.Bitcask.Datafile
 
   @type file_id :: non_neg_integer()
   @type value_size :: non_neg_integer()
@@ -30,12 +31,13 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   @doc """
   Creates a new keydir by loading from a hints file if it exists.
   """
-  @spec new(String.t()) :: {:ok, t()} | {:error, term()}
-  def new(path) do
+  @spec new(String.t(), [Datafile.t()]) :: {:ok, t()} | {:error, term()}
+  def new(path, datafiles) do
     path
     |> load_hints_file()
     |> case do
       {:ok, keydir} -> {:ok, keydir}
+      {:error, :enoent} -> load_using_datafiles(datafiles)
       error -> error
     end
   end
@@ -90,11 +92,35 @@ defmodule Beetle.Storage.Bitcask.Keydir do
       {:ok, contents} ->
         {:ok, :erlang.binary_to_term(contents)}
 
-      {:error, :enoent} ->
-        {:ok, %{}}
-
       error ->
         error
     end
+  end
+
+  @spec load_using_datafiles([Datafile.t()]) :: {:ok, t()} | {:error, String.t()}
+  defp load_using_datafiles(datafiles) do
+    datafiles
+    |> Enum.reduce_while(%{}, fn {file_id, datafile}, acc ->
+      datafile
+      |> Datafile.dump_all_entries()
+      |> case do
+        {:ok, entries} ->
+          parsed_entries = parse_dumped_entries(file_id, entries)
+          {:cont, Map.merge(acc, parsed_entries)}
+
+        error ->
+          {:halt, error}
+      end
+    end)
+    |> case do
+      {:error, reason} -> {:error, reason}
+      keydir -> {:ok, keydir}
+    end
+  end
+
+  defp parse_dumped_entries(file_id, entries) do
+    Enum.reduce(entries, %{}, fn %{entry: entry, size: size, pos: pos}, acc ->
+      Map.put(acc, entry.key, {file_id, size, pos, entry.timestamp})
+    end)
   end
 end

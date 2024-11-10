@@ -19,10 +19,12 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   """
   alias Beetle.Storage.Bitcask.Datafile.Entry
 
+  @type io_device :: :file.io_device()
+
   @type t :: %__MODULE__{
           file_id: pos_integer(),
-          writer: pid(),
-          reader: pid(),
+          writer: io_device(),
+          reader: io_device(),
           offset: pos_integer()
         }
   defstruct [:file_id, :writer, :reader, :offset]
@@ -122,7 +124,8 @@ defmodule Beetle.Storage.Bitcask.Datafile do
     end
   end
 
-  @spec dump_all_entries(t()) :: {:ok, [Entry.t()]} | {:error, any()}
+  @spec dump_all_entries(t()) ::
+          {:ok, [%{entry: Entry.t(), size: pos_integer(), pos: pos_integer()}]} | {:error, any()}
   def dump_all_entries(datafile) do
     case :file.position(datafile.reader, 0) do
       {:ok, _} ->
@@ -142,8 +145,12 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   defp stream_entries(io_device) do
     Stream.unfold(0, fn offset ->
       case Entry.read_entry(io_device, offset) do
-        {:ok, entry, next_offset} -> {entry, next_offset}
-        _ -> nil
+        {:ok, entry, next_offset} ->
+          metadata = %{entry: entry, pos: offset, size: next_offset}
+          {metadata, next_offset}
+
+        _ ->
+          nil
       end
     end)
   end
@@ -241,7 +248,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   @spec decode(binary()) :: {:ok, t()} | {:error, String.t()}
   def decode(entry) do
-    with {:ok, decoded_entry} <- decode(entry),
+    with {:ok, decoded_entry} <- decode_raw(entry),
          :ok <- validate_checksum(entry),
          :ok <- validate_expiration(decoded_entry.expiration) do
       {:ok, decoded_entry}
@@ -261,7 +268,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   defp decode_raw(_), do: {:error, @errors.invalid_entry}
 
-  defp validate_expiration(0), do: {:error, @errors.expired}
+  defp validate_expiration(0), do: :ok
 
   defp validate_expiration(expiration) do
     (System.system_time(:second) >= expiration)

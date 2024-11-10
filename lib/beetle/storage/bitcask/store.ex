@@ -35,9 +35,9 @@ defmodule Beetle.Storage.Bitcask.Store do
   @spec new(String.t()) :: {:ok, t()} | {:error, String.t()}
   def new(storage_dir) do
     with {:ok, stale_datafiles} <- load_stale_datafiles(storage_dir),
+         {:ok, keydir} <- Keydir.new(storage_dir, stale_datafiles),
          file_id <- map_size(stale_datafiles),
-         {:ok, active_datafile} <- Datafile.new(file_id, storage_dir),
-         {:ok, keydir} <- Keydir.new(storage_dir) do
+         {:ok, active_datafile} <- Datafile.new(file_id, storage_dir) do
       {:ok,
        %__MODULE__{
          keydir: keydir,
