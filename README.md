@@ -3,14 +3,14 @@
 Beetle is a [redis-compliant](https://redis.io), distributed, and persistent
 database built using Elixir. It started as a fun project to learn about
 distributed systems and databases, and is currently under heavy development.
-Internally, it uses Bitcask storage engine for faster data storage and
+Internally, it uses the Bitcask storage engine for faster data storage and
 retrieval. Consensus is provided using Raft consensus algorithm.
 
 ## Features
 
-- Support Redis Serialization Protocol Specification making it extendable to be
-  used with any existing redis clients.
-- Log structured fast key-value store, capable of handling production grade
+- Support Redis Serialization Protocol Specification, making it extensible for
+  use with any existing redis clients.
+- Log-structured fast key-value store, capable of handling production grade
   traffic.
 - Strong consistency guarantees with leader election and log replication.
 - Supports transactions and command pipelining.
@@ -25,8 +25,8 @@ functionality works, expect breaking changes and ongoing optimizations.
 
 ## Contributing
 
-This is just a fun side project, so I'm not expecting any contributions. But
-still if this project interest you, head over to the
+This is just a fun side project, so I'm not expecting any contributions.
+However, if this project interests you, head over to the
 [issues](https://github.com/prxssh/beetle/issues), and raise a pull request for
 any of the open issues.
 
