@@ -42,7 +42,7 @@ defmodule Beetle.Storage.Bitcask.Operations do
              key,
              store.file_id,
              store.active_datafile.offset,
-             offset,
+             offset - store.active_datafile.offset,
              NaiveDateTime.utc_now()
            ),
          datafile <- Map.put(store.active_datafile, :offset, offset) do
@@ -66,8 +66,8 @@ defmodule Beetle.Storage.Bitcask.Operations do
   @doc """
   List all keys in a Bitcask datastore.
   """
-  @spec list_keys(Store.t()) :: {:ok, [String.t()]}
-  def list_keys(store), do: {:ok, Map.keys(store.keydir)}
+  @spec list_keys(Store.t()) :: [String.t()]
+  def list_keys(store), do: Map.keys(store.keydir)
 
   @doc """
   Force any writes to sync to disk.
@@ -100,8 +100,9 @@ defmodule Beetle.Storage.Bitcask.Operations do
   Merge several data files within a Bitcask datastore into a more compact form.
   Also, produces hintfiles for faster startups.
   """
-  @spec merge(Store.t()) :: :ok | {:error, any()}
-  def merge(store) do
+  @spec merge() :: {:ok, Store.t()} | {:error, any()}
+  def merge do
+    :ok
   end
 
   @doc """
@@ -126,4 +127,30 @@ defmodule Beetle.Storage.Bitcask.Operations do
       error -> error
     end
   end
+
+  @spec remove_expired(Store.t()) :: {:ok, Store.t()} | {:error, String.t()}
+  defp remove_expired(store) do
+    store
+    |> list_keys()
+    |> Enum.reduce_while(store, fn key, new_store ->
+      with {:error, :expired} <- get(new_store, key),
+           {:ok, updated_store} <- delete(new_store, key) do
+        {:cont, updated_store}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+        {:ok, _} -> {:cont, new_store}
+      end
+    end)
+    |> case do
+      {:error, reason} -> {:error, inspect(reason)}
+      updated_store -> {:ok, updated_store}
+    end
+  end
+
+  defp do_merge(store) do
+  end
+
+  @spec create_hints_file(Store.t()) :: :ok | {:error, any()}
+  defp create_hints_file(store),
+    do: Keydir.write_hints_file(store.keydir, Config.get_storage_directory())
 end

@@ -67,8 +67,8 @@ defmodule Beetle.Storage.Bitcask.Store do
       end
     end)
     |> case do
-      %{} -> {:ok, %{}}
-      error -> error
+      {:error, reason} -> {:error, reason}
+      stale_datafiles -> {:ok, stale_datafiles}
     end
   end
 end

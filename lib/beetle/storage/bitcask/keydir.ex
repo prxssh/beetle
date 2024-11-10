@@ -16,13 +16,16 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   - `value_pos`: offset within the file where the value starts
   - `timestamp`: timestamp at which the value was written
   """
+  alias Beetle.Config.State, as: Config
+
   @type file_id :: non_neg_integer()
   @type value_size :: non_neg_integer()
   @type value_pos :: non_neg_integer()
   @type timestamp :: non_neg_integer()
   @type entry :: {file_id(), value_size(), value_pos(), timestamp()}
-
   @type t :: %{optional(binary()) => entry()}
+
+  @hints_file_name "beetle.hints"
 
   @doc """
   Creates a new keydir by loading from a hints file if it exists.
@@ -68,17 +71,20 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   @spec write_hints_file(t(), Path.t()) :: :ok | {:error, term()}
   def write_hints_file(keydir, path) do
     encoded = :erlang.term_to_binary(keydir)
-    :file.write(path, encoded)
+
+    path
+    |> Path.join(@hints_file_name)
+    |> to_charlist()
+    |> :file.write_file(encoded)
   end
 
-  @spec close(t()) :: :ok | {:error, any()}
-  def close(keydir) do
-  end
+  @spec close(t()) :: :ok | {:error, term()}
+  def close(keydir), do: write_hints_file(keydir, Config.get_storage_directory())
 
   @spec load_hints_file(String.t()) :: {:ok, t()} | {:error, any()}
   defp load_hints_file(path) do
     path
-    |> Path.join("beetle.hints")
+    |> Path.join(@hints_file_name)
     |> File.read()
     |> case do
       {:ok, contents} ->
