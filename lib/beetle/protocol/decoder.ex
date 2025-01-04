@@ -141,7 +141,7 @@ defmodule Beetle.Protocol.Decoder do
   @spec parse_line(String.t()) :: {:ok, {String.t(), String.t()}} | {:error, String.t()}
   defp parse_line(input) do
     case String.split(input, "\r\n", parts: 2) do
-      [line, rest] -> {:ok, {line, rest}} |> dbg
+      [line, rest] -> {:ok, {line, rest}}
       _ -> {:error, "malformed line: missing CRLF"}
     end
   end
@@ -179,7 +179,7 @@ defmodule Beetle.Protocol.Decoder do
   defp to_integer(str) do
     case Integer.parse(str) do
       {value, ""} -> {:ok, value}
-      :error -> {:error, "invalid integer string given for conversion"}
+      _ -> {:error, "invalid integer string given for conversion"}
     end
   end
 
@@ -194,7 +194,7 @@ defmodule Beetle.Protocol.Decoder do
   defp to_float(str) do
     case Float.parse(str) do
       {value, ""} -> {:ok, value}
-      :error -> {:error, "invalid float string given for conversion"}
+      _ -> {:error, "invalid float string given for conversion"}
     end
   end
 
