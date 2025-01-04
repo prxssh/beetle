@@ -183,7 +183,14 @@ defmodule Beetle.RESP.Decoder do
     end
   end
 
-  @spec to_float(String.t()) :: {:ok, float()} | {:error, String.t()}
+  @spec to_float(String.t()) ::
+          {:ok, float() | :infinity | :negative_infinity | :nan} | {:error, String.t()}
+  defp to_float("inf"), do: {:ok, :infinity}
+
+  defp to_float("-inf"), do: {:ok, :negative_infinity}
+
+  defp to_float("nan"), do: {:ok, :nan}
+
   defp to_float(str) do
     case Float.parse(str) do
       {value, ""} -> {:ok, value}
