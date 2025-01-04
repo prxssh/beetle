@@ -1,4 +1,4 @@
-defmodule Beetle.RESP.Encoder do
+defmodule Beetle.Protocol.Encoder do
   @moduledoc """
   Implements an encoder for the Redis Serialization Protocol (RESP).
 

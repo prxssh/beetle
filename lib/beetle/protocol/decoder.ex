@@ -1,4 +1,4 @@
-defmodule Beetle.RESP.Decoder do
+defmodule Beetle.Protocol.Decoder do
   @moduledoc """
   To communicate with the Beetle server, clients use a protocol called Redis
   Serialization Protocol (RESP). This module implement a decoder for it.

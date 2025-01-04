@@ -1,8 +1,8 @@
-defmodule Beetle.RESP.EncoderTest do
+defmodule Beetle.Protocol.EncoderTest do
   @moduledoc false
   use ExUnit.Case, async: true
 
-  alias Beetle.RESP.Encoder
+  alias Beetle.Protocol.Encoder
 
   describe "encode/1 for nulls" do
     test "encode nil" do
