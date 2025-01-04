@@ -4,13 +4,11 @@ defmodule Beetle.Protocol.EncoderTest do
 
   alias Beetle.Protocol.Encoder
 
-  describe "encode/1 for nulls" do
+  describe "encode/1" do
     test "encode nil" do
       assert Encoder.encode(nil) == "_\r\n"
     end
-  end
 
-  describe "encode/1 for boolean" do
     test "encode boolean true" do
       assert Encoder.encode(true) == "#t\r\n"
     end
@@ -18,15 +16,11 @@ defmodule Beetle.Protocol.EncoderTest do
     test "encode boolean false" do
       assert Encoder.encode(false) == "#f\r\n"
     end
-  end
 
-  describe "encode/1 for errors" do
     test "encode normal error" do
       assert Encoder.encode({:error, "syntax error"}) == "-syntax error\r\n"
     end
-  end
 
-  describe "encode/1 for strings and atoms" do
     test "encode atom" do
       assert Encoder.encode(:hello) == "$5\r\nhello\r\n"
     end
@@ -34,9 +28,7 @@ defmodule Beetle.Protocol.EncoderTest do
     test "encode string" do
       assert Encoder.encode("hello world") == "$11\r\nhello world\r\n"
     end
-  end
 
-  describe "encode/1 for numbers" do
     test "encode positive integer" do
       assert Encoder.encode(500_000) == ":500000\r\n"
     end
@@ -57,9 +49,7 @@ defmodule Beetle.Protocol.EncoderTest do
       assert Encoder.encode(4_943_957_349_753_957_395_739_579_375_935_793) ==
                ":4943957349753957395739579375935793\r\n"
     end
-  end
 
-  describe "encode/1 for list" do
     test "encode empty list" do
       assert Encoder.encode([]) == "*0\r\n"
     end
@@ -83,9 +73,7 @@ defmodule Beetle.Protocol.EncoderTest do
       assert Encoder.encode(mixed_list) ==
                "*8\r\n$5\r\nhello\r\n$5\r\nworld\r\n:100\r\n:-100\r\n,200.512\r\n,-300.534\r\n:593457353453535\r\n*6\r\n:5\r\n:6\r\n:7\r\n:8\r\n$7\r\nanother\r\n$4\r\nlist\r\n"
     end
-  end
 
-  describe "encode/1 for map" do
     test "encode empty map" do
       assert Encoder.encode(%{}) == "%0\r\n"
     end
