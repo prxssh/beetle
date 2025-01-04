@@ -6,8 +6,8 @@ defmodule Beetle.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: Beetle.Worker.start_link(arg)
-      # {Beetle.Worker, arg}
+      {Beetle.Server, []},
+      {Beetle.Server.ClientSupervisor, []}
     ]
 
     opts = [strategy: :one_for_one, name: Beetle.Supervisor]
