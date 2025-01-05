@@ -41,5 +41,46 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
           value: binary()
         }
 
-  defstruct [:crc, :expiration, :key_size, :value_size, :value]
+  defstruct [:crc, :expiration, :key_size, :value_size, :key, :value]
+
+  @spec new(String.t(), term(), non_neg_integer()) :: {:ok, t()} | {:error, atom()}
+  def new(key, value, expiration \\ 0)
+      when is_binary(key) and is_integer(expiration) and expiration >= 0 do
+    serialized_value = serialize(value)
+    key_size = byte_size(key)
+    value_size = byte_size(serialized_value)
+
+    entry = <<expiration::32, key_size::32, value_size::32>> <> key <> serialized_value
+    crc = :erlang.crc32(entry)
+
+    {:ok,
+     %__MODULE__{
+       crc: crc,
+       expiration: expiration,
+       key_size: key_size,
+       value_size: value_size,
+       key: key,
+       value: serialized_value
+     }}
+  end
+
+  def new(_), do: {:error, :unsupported_input_format}
+
+  # === Private
+
+  @spec serialize(term()) :: binary()
+  defp serialize(value), do: :erlang.term_to_binary(value)
+
+  @spec deserialize!(binary()) :: term()
+  defp deserialize!(binary) do
+    case deserialize(binary) do
+      {:ok, value} -> {:ok, value}
+      {:error, reason} -> raise reason
+    end
+  end
+
+  @spec deserialize(binary()) :: {:ok, term()} | {:error, atom()}
+  defp deserialize(binary) when is_binary(binary), do: {:ok, :erlang.binary_to_term(binary)}
+
+  defp deserialize(_), do: {:error, :invalid_binary}
 end
