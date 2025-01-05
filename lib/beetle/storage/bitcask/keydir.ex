@@ -75,7 +75,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
 
   defp valid_keydir?(_), do: false
 
-  @spec value_value?(map()) :: boolean()
+  @spec valid_value?(map()) :: boolean()
   defp valid_value?(value) when is_map(value) do
     required_keys = [:file_id, :value_size, :value_pos, :timestamp]
     has_all_keys? = Enum.all?(required_keys, &Map.has_key?(value, &1))
