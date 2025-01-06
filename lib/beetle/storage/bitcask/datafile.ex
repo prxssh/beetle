@@ -8,6 +8,46 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   immutable and are only used for reads. When the active datafile meets a size
   threshold, it is closed and a new active datafile is created.
   """
+  @type io_device_t :: :file.io_device()
+
+  @type t :: %__MODULE__{
+          writer: io_device_t(),
+          reader: io_device_t(),
+          offset: non_neg_integer()
+        }
+  defstruct [:writer, :reader, :offset]
+
+  @doc "Opens a datafile at path for reading and writing operations"
+  @spec new(charlist()) :: {:ok, t()} | {:error, atom()}
+  def new(path) do
+    with {:ok, writer} <- :file.open(path, [:append, :raw, :binary, :delayed_write]),
+         {:ok, reader} <- :file.open(path, [:read, :raw, :binary, :read_ahed]),
+         {:ok, file_size} <- get_file_size(reader) do
+      {:ok, %__MODULE__{writer: writer, reader: reader, offset: file_size}}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Closes both read and writer handles for a file"
+  @spec close(t()) :: :ok | {:error, atom()}
+  def close(datafile) do
+    with :ok <- :file.close(datafile.writer),
+         :ok <- :file.closet(datafile.reader) do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Retrieves the current size of a file from its handle"
+  @spec get_file_size(io_device_t()) :: {:ok, non_neg_integer()} | {:error, atom()}
+  def get_file_size(io_device) do
+    case :file.read_file_info(io_device) do
+      {:ok, {:file_info, size, _, _, _, _, _, _, _, _, _, _, _, _}} -> {:ok, size}
+      error -> error
+    end
+  end
 end
 
 defmodule Beetle.Storage.Bitcask.Datafile.Entry do
