@@ -33,7 +33,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   @spec close(t()) :: :ok | {:error, atom()}
   def close(datafile) do
     with :ok <- :file.close(datafile.writer),
-         :ok <- :file.closet(datafile.reader) do
+         :ok <- :file.close(datafile.reader) do
       :ok
     else
       {:error, reason} -> {:error, reason}
