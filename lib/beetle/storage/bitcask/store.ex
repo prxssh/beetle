@@ -67,9 +67,9 @@ defmodule Beetle.Storage.Bitcask do
          :ok <- store.file_handles |> Map.get(:active_file) |> Datafile.sync(),
          :ok <-
            store.file_handles
-           |> Enum.reduce_while(:ok, fn file_handle, acc ->
+           |> Enum.reduce_while(:ok, fn {_, file_handle}, acc ->
              file_handle
-             |> :file.close()
+             |> Datafile.close()
              |> case do
                :ok -> {:cont, acc}
                {:error, reason} -> {:halt, {:error, reason}}
