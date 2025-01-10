@@ -23,3 +23,5 @@ beetle-*.tar
 /tmp/
 
 .lexical/
+
+.DS_Store
