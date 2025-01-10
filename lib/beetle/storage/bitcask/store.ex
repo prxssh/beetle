@@ -9,6 +9,8 @@ defmodule Beetle.Storage.Bitcask do
   and an in-memory index holding the keys mapped to a bunch of information
   necessary for point lookups.
   """
+  require Logger
+
   alias Beetle.Config
 
   alias Beetle.Storage.Bitcask.{
@@ -79,6 +81,111 @@ defmodule Beetle.Storage.Bitcask do
     else
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  @doc """
+  Retrieve a value by key from the store. 
+
+  Returns `nil` if the value is not found, or expired.
+  """
+  @spec get(t(), Datafile.Entry.key_t()) :: {:ok, Datafile.Entry.value_t()} | nil
+  def get(store, key) do
+    with entry_location <- store.keydir |> Keydir.get(key),
+         true <- not is_nil(entry_location),
+         {:ok, value} <-
+           store.file_handles
+           |> Map.get(entry_location.file_id)
+           |> Datafile.get_entry(entry_location.value_pos, entry_location.value_size) do
+      value
+    else
+      false ->
+        nil
+
+      {:error, reason} ->
+        Logger.notice("#{__MODULE__}.get/2: #{inspect(reason)}")
+        nil
+    end
+  end
+
+  @doc """
+   a key and value in the store with additional options.
+
+  Currently, the only supported option is `expiration`.
+  """
+  @spec put(Bitcask.t(), DataFile.Entry.key_t(), Datafile.Entry.value_t(), non_neg_integer()) ::
+          {:ok, t()} | {:error, any()}
+  def put(store, key, value, expiration) do
+    store.file_handles
+    |> Map.get(:active_file)
+    |> Datafile.write(key, value, expiration)
+    |> case do
+      {:ok, updated_datafile} ->
+        updated_file_handles = Map.put(store.file_handles, store.active_file, updated_datafile)
+        updated_keydir = Keydir.put(store.keydir, key, store.active_file, updated_datafile.offset)
+
+        {:ok, %{store | file_handles: updated_file_handles, keydir: updated_keydir}}
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  Delete key(s) from the store.
+
+  This operation doesn't immediately removes the key but overwrites it with a
+  tombstone value. The deleted keys are cleaned up during merging operation. It
+  returns a non-negative integer specifying the count of keys deleted.
+  """
+  @spec delete(t(), [Datafile.Entry.key_t()] | Datafile.Entry.key_t()) :: {t(), non_neg_integer()}
+  def delete(store, keys) do
+    keys
+    |> List.wrap()
+    |> Enum.reduce({store, 0}, fn key, {store_acc, deleted_keys_count} ->
+      tombstone_value = Datafile.Entry.deleted_sentinel()
+
+      store_acc
+      |> put(key, tombstone_value, 0)
+      |> case do
+        {:ok, updated_store} ->
+          {store_acc, deleted_keys_count + 1}
+
+        {:error, reason} ->
+          Logger.notice("#{__MODULE__} failed to delete key #{key}: #{inspect(reason)}")
+          {store_acc, deleted_keys_count}
+      end
+    end)
+  end
+
+  @doc "List all the keys in the store"
+  @spec keys(t()) :: [Datafile.Entry.key_t()] | {:error, any()}
+  def keys(store), do: Map.keys(store.keydir)
+
+  @doc """
+  Merges several datafiles within the store into a more compact form.
+
+  This function also takes care of cleaning up the expired and deleted entries
+  from the store.
+  """
+  @spec merge(t()) :: {:ok, t()} | {:error, any()}
+  def merge(store) do
+  end
+
+  @doc """
+  Creates a new log file (datafile) for the store. 
+
+  The previous log file will no longer be used for writing, just for reading.
+  """
+  @spec log_rotation(t()) :: {:ok, t()} | {:error, any()}
+  def log_rotation(store) do
+  end
+
+  @doc "Force any writes to sync to disk."
+  @spec sync(t()) :: :ok
+  def sync(store) do
+    store
+    |> Map.get(:file_handles, store.active_file)
+    |> Datafile.sync()
   end
 
   # === Private

@@ -23,7 +23,6 @@ defmodule Beetle.Storage.Bitcask.Keydir do
 
   @type value_t :: %{
           file_id: pos_integer(),
-          value_size: pos_integer(),
           value_pos: pos_integer(),
           timestamp: pos_integer()
         }
@@ -65,11 +64,10 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   end
 
   @doc "Puts a new entry in the keydir"
-  @spec put(t(), String.t(), pos_integer(), pos_integer(), pos_integer()) :: t()
-  def put(keydir, key, file_id, value_size, value_pos) do
+  @spec put(t(), String.t(), non_neg_integer(), non_neg_integer()) :: t()
+  def put(keydir, key, file_id, value_pos) do
     Map.put(keydir, key, %{
       file_id: file_id,
-      value_size: value_size,
       value_pos: value_pos,
       timestamp: System.system_time(:second)
     })
