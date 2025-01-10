@@ -149,7 +149,7 @@ defmodule Beetle.Storage.Bitcask do
       |> put(key, tombstone_value, 0)
       |> case do
         {:ok, updated_store} ->
-          {store_acc, deleted_keys_count + 1}
+          {updated_store, deleted_keys_count + 1}
 
         {:error, reason} ->
           Logger.notice("#{__MODULE__} failed to delete key #{key}: #{inspect(reason)}")

@@ -160,9 +160,9 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   defstruct [:crc, :expiration, :key_size, :value_size, :key, :value]
 
   @header_size 16
-  @tombstome_value <<0>>
+  @tombstone_value "--DEL--"
 
-  def deleted_sentinel, do: @tombstome_value
+  def deleted_sentinel, do: @tombstone_value
 
   @spec new(key_t(), value_t(), non_neg_integer()) :: binary()
   def new(key, value, expiration) do
@@ -185,10 +185,12 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
          {:ok, entry} <- decode_entry(binary),
          :ok <- validate_crc(entry),
          :ok <- validate_expiration(entry.expiration),
-         {:ok, value} <- deserialize(entry.value) do
+         {:ok, value} <- deserialize(entry.value),
+         :ok <- validate_deleted(value) do
       {:ok, value}
     else
       {:error, :expired} -> {:ok, nil}
+      {:error, :deleted} -> {:ok, nil}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -249,4 +251,8 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   end
 
   defp validate_expiration(_), do: :ok
+
+  defp validate_deleted(@tombstone_value), do: {:error, :deleted}
+
+  defp validate_deleted(_), do: :ok
 end
