@@ -15,6 +15,8 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   - `value_pos` : offset position in the datafile where the value starts
   - `timestamp` : when the entry was written
   """
+  alias Beetle.Config
+
   @type t :: %{key_t() => value_t()}
 
   @type key_t :: String.t()
@@ -26,8 +28,25 @@ defmodule Beetle.Storage.Bitcask.Keydir do
           timestamp: pos_integer()
         }
 
-  @doc "Creates a new empty keydir"
-  def new, do: %{}
+  @keydir_file_name "beetle.hints"
+
+  @doc """
+  Creates a new keydir, either reading it from the hints file present in the
+  storage directory or initializes an empty keydir.
+  """
+  @spec new :: {:ok, t()} | {:error, any()}
+  def new do
+    path = Config.storage_directory() |> Path.join(@keydir_file_name)
+
+    with true <- File.exists?(path),
+         {:ok, data} <- path |> to_charlist() |> :file.read_file(),
+         {:ok, keydir} <- deserialize(data) do
+      {:ok, keydir}
+    else
+      false -> {:ok, %{}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   @doc """
   Serializes the keydir to binary format.
