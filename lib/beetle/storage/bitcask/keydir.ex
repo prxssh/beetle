@@ -34,9 +34,9 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   Creates a new keydir, either reading it from the hints file present in the
   storage directory or initializes an empty keydir.
   """
-  @spec new :: {:ok, t()} | {:error, any()}
-  def new do
-    path = Config.storage_directory() |> Path.join(@keydir_file_name)
+  @spec new(Path.t()) :: {:ok, t()} | {:error, any()}
+  def new(path) do
+    path = Path.join(path, @keydir_file_name)
 
     with true <- File.exists?(path),
          {:ok, data} <- path |> to_charlist() |> :file.read_file(),
@@ -49,22 +49,22 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   end
 
   @doc """
-  Serializes the keydir to binary format.
-
-  It comes in handy when we want to persist the keydir to disk after merging is
-  complete.
+  Writes the keydir to a disk, creating a .hints file for faster bootups.
   """
-  @spec serialize(t()) :: binary()
-  def serialize(keydir) when is_map(keydir), do: :erlang.term_to_binary(keydir)
+  @spec persist(String.t(), t()) :: :ok | {:error, any()}
+  def persist(path, keydir) do
+    path = Path.join(path, @keydir_file_name)
 
-  @spec deserialize(binary()) :: {:ok, t()} | {:error, :invalid_format}
-  def deserialize(binary) when is_binary(binary) do
-    term = :erlang.binary_to_term(binary)
-
-    if valid_keydir?(term), do: {:ok, term}, else: {:error, :invalid_format}
+    keydir
+    |> serialize()
+    |> then(&:file.write_file(path, &1))
+    |> case do
+      :ok -> :ok
+      error -> error
+    end
   end
 
-  @doc "Puts a new entry in the keydir "
+  @doc "Puts a new entry in the keydir"
   @spec put(t(), String.t(), pos_integer(), pos_integer(), pos_integer()) :: t()
   def put(keydir, key, file_id, value_size, value_pos) do
     Map.put(keydir, key, %{
@@ -88,6 +88,20 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   def keys(keydir), do: Map.keys(keydir)
 
   # ==== Private
+
+  # Serializes the keydir to binary format.
+  #
+  #  It comes in handy when we want to persist the keydir to disk after merging is
+  #  complete.
+  @spec serialize(t()) :: binary()
+  defp serialize(keydir) when is_map(keydir), do: :erlang.term_to_binary(keydir)
+
+  @spec deserialize(binary()) :: {:ok, t()} | {:error, :invalid_format}
+  defp deserialize(binary) when is_binary(binary) do
+    term = :erlang.binary_to_term(binary)
+
+    if valid_keydir?(term), do: {:ok, term}, else: {:error, :invalid_format}
+  end
 
   defp valid_keydir?(map) when is_map(map),
     do: Enum.all?(map, fn {key, value} -> is_binary(key) and valid_value?(value) end)
