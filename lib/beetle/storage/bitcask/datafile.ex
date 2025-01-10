@@ -17,9 +17,33 @@ defmodule Beetle.Storage.Bitcask.Datafile do
         }
   defstruct [:writer, :reader, :offset]
 
+  @doc """
+  Opens all the datafile(s) at path for reading.
+
+  This is usually called at the initialization to load all older datafiles.
+  """
+  @spec open_datafiles(Path.t()) :: {:ok, %{pos_integer() => t()}} | {:error, any()}
+  def open_datafiles(path) do
+    path
+    |> Path.join("beetle_*.db")
+    |> Path.wildcard()
+    |> Enum.reduce_while({:ok, %{}}, fn path, {:ok, acc} ->
+      file_id = extract_file_id_from_path(path)
+
+      path
+      |> new()
+      |> case do
+        {:ok, handle} -> {:cont, {:ok, Map.put(acc, file_id, handle)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
   @doc "Opens a datafile at path for reading and writing operations"
-  @spec new(charlist()) :: {:ok, t()} | {:error, atom()}
+  @spec new(charlist() | String.t()) :: {:ok, t()} | {:error, atom()}
   def new(path) do
+    path = to_charlist(path)
+
     with {:ok, writer} <- :file.open(path, [:append, :raw, :binary, :delayed_write]),
          {:ok, reader} <- :file.open(path, [:read, :raw, :binary, :read_ahed]),
          {:ok, file_size} <- get_file_size(reader) do
@@ -46,6 +70,19 @@ defmodule Beetle.Storage.Bitcask.Datafile do
     case :file.read_file_info(io_device) do
       {:ok, {:file_info, size, _, _, _, _, _, _, _, _, _, _, _, _}} -> {:ok, size}
       error -> error
+    end
+  end
+
+  @doc "Creates a datafile name using the provided `file_id`"
+  @spec get_name(String.t(), pos_integer()) :: String.t()
+  def get_name(path, file_id), do: Path.join(path, "beetle_#{file_id}.db")
+
+  # ==== Private
+
+  defp extract_file_id_from_path(path) do
+    case Regex.run(~r/beetle_(\d+)\.db$/, path) do
+      [_, file_id] -> String.to_integer(file_id)
+      nil -> raise "invalid datafile naming convention"
     end
   end
 end
