@@ -7,16 +7,19 @@ defmodule Beetle.Storage.Bitcask.Operations do
   the Bitcask storage engine, handling the actual reading and writing of data
   to disk and mangaing datafiles.
   """
-  alias Beetle.Storage.Bitcask.Store
-  
+  alias Beetle.Storage.Bitcask.{
+    Store,
+    Datafile
+  }
+
   @type key_t :: String.t()
   @type value_t :: binary() | list() | map()
 
   @type opts_t :: %{
-    expiration: non_neg_integer()
-  }
+          expiration: non_neg_integer()
+        }
 
-  @default_opts :: %{
+  @default_opts %{
     expiration: 0
   }
 
@@ -25,7 +28,7 @@ defmodule Beetle.Storage.Bitcask.Operations do
 
   Returns `nil` if the value is not found, or expired.
   """
-  @spec get(Store.t(), key_t()) :: {:ok, value_t()} | nil 
+  @spec get(Store.t(), key_t()) :: {:ok, value_t()} | nil
   def get(store, key) do
   end
 
@@ -51,8 +54,7 @@ defmodule Beetle.Storage.Bitcask.Operations do
 
   @doc "List all the keys in the store"
   @spec keys(Store.t()) :: [key_t()] | {:error, any()}
-  def keys(store) do
-  end
+  def keys(store), do: Map.keys(store.keydir)
 
   @doc """
   Merges several datafiles within the store into a more compact form.
@@ -76,10 +78,12 @@ defmodule Beetle.Storage.Bitcask.Operations do
   @doc "Force any writes to sync to disk."
   @spec sync(Store.t()) :: :ok
   def sync(store) do
+    store
+    |> Map.get(:file_handles, store.active_file)
+    |> Datafile.sync()
   end
 
   @doc "Closes the store and flush all pending writes"
   @spec close(Store.t()) :: :ok
-  def close(store) do
-  end
+  def close(store), do: Store.close(store)
 end
