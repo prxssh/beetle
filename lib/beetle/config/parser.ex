@@ -17,8 +17,10 @@ defmodule Beetle.Config.Parser do
 
   def read_config(path) do
     case :file.read_file(path) do
-      {:ok, content} -> parse_config(content)
-      {:error, reason} -> 
+      {:ok, content} ->
+        parse_config(content)
+
+      {:error, reason} ->
         Logger.notice("#{__MODULE__}: read_config/1 failed: #{inspect(reason)}")
         %__MODULE__{}
     end
