@@ -2,6 +2,7 @@ defmodule Beetle.Config.Parser do
   @moduledoc """
   Reads & Parses configuration file for the Beetle database
   """
+  require Logger
 
   @type t :: %__MODULE__{
           port: pos_integer(),
@@ -17,7 +18,9 @@ defmodule Beetle.Config.Parser do
   def read_config(path) do
     case :file.read_file(path) do
       {:ok, content} -> parse_config(content)
-      {:error, _} -> %__MODULE__{}
+      {:error, reason} -> 
+        Logger.notice("#{__MODULE__}: read_config/1 failed: #{inspect(reason)}")
+        %__MODULE__{}
     end
   end
 
@@ -49,8 +52,18 @@ defmodule Beetle.Config.Parser do
   @spec update_config(t(), atom(), String.t()) :: t()
   defp update_config(config, :port, value), do: %{config | port: String.to_integer(value)}
 
-  defp update_config(config, :storage_directory, value),
-    do: %{config | storage_directory: Path.expand(value)}
+  defp update_config(config, :storage_directory, value) do
+    path = Path.expand(value)
+    updated_config = %{config | storage_directory: path}
+
+    with false <- File.exists?(path),
+         :ok <- File.mkdir_p(path) do
+      updated_config
+    else
+      true -> updated_config
+      error -> raise error
+    end
+  end
 
   defp update_config(config, _, _), do: config
 end
