@@ -95,7 +95,7 @@ defmodule Beetle.Storage.Bitcask do
          {:ok, value} <-
            store.file_handles
            |> Map.get(entry_location.file_id)
-           |> Datafile.get_entry(entry_location.value_pos, entry_location.value_size) do
+           |> Datafile.get(entry_location.value_pos) do
       value
     else
       false ->
@@ -115,13 +115,14 @@ defmodule Beetle.Storage.Bitcask do
   @spec put(Bitcask.t(), DataFile.Entry.key_t(), Datafile.Entry.value_t(), non_neg_integer()) ::
           {:ok, t()} | {:error, any()}
   def put(store, key, value, expiration) do
-    store.file_handles
-    |> Map.get(:active_file)
+    active_datafile = Map.get(store.file_handles, store.active_file)
+
+    active_datafile
     |> Datafile.write(key, value, expiration)
     |> case do
       {:ok, updated_datafile} ->
         updated_file_handles = Map.put(store.file_handles, store.active_file, updated_datafile)
-        updated_keydir = Keydir.put(store.keydir, key, store.active_file, updated_datafile.offset)
+        updated_keydir = Keydir.put(store.keydir, key, store.active_file, active_datafile.offset)
 
         {:ok, %{store | file_handles: updated_file_handles, keydir: updated_keydir}}
 
