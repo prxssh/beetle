@@ -64,6 +64,10 @@ defmodule Beetle.Storage.Bitcask.Datafile do
     end
   end
 
+  @doc "Flushes any pending writes to disk"
+  @spec sync(t()) :: :ok | {:error, any()}
+  def sync(datafile), do: :file.sync(datafile.writer)
+
   @doc "Retrieves the current size of a file from its handle"
   @spec get_file_size(io_device_t()) :: {:ok, non_neg_integer()} | {:error, atom()}
   def get_file_size(io_device) do
@@ -76,6 +80,21 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   @doc "Creates a datafile name using the provided `file_id`"
   @spec get_name(String.t(), pos_integer()) :: String.t()
   def get_name(path, file_id), do: Path.join(path, "beetle_#{file_id}.db")
+
+  @doc """
+  Fetches the entry from the datafile stored at a particular position and
+  having some fixed size.
+  """
+  @spec get_entry(t(), non_neg_integer(), non_neg_integer()) :: {:ok, Datafile.Entry.value_t()}
+  def get_entry(datafile, pos, size) do
+    with :ok <- :file.position(datafile.reader, pos),
+         {:ok, data} <- :file.read(datafile.reader, size),
+         {:ok, entry} <- Datafile.Entry.parse_entry(entry) do
+      {:ok, entry}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   # ==== Private
 
@@ -109,18 +128,21 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   Values can be any Erlang/Elixir term (lists, maps, sets, tuples, etc) as they
   are automatically serialized before storage and deserialized upon retrieval.
   """
+  @type key_t :: String.t()
+  @type value_t :: term()
+
   @type t :: %__MODULE__{
           crc: pos_integer(),
           expiration: non_neg_integer(),
           key_size: pos_integer(),
           value_size: pos_integer(),
-          key: String.t(),
+          key: key_t(),
           value: binary()
         }
 
   defstruct [:crc, :expiration, :key_size, :value_size, :key, :value]
 
-  @spec new(String.t(), term(), non_neg_integer()) :: {:ok, t()} | {:error, atom()}
+  @spec new(key_t(), value_t(), non_neg_integer()) :: {:ok, t()} | {:error, atom()}
   def new(key, value, expiration \\ 0)
       when is_binary(key) and is_integer(expiration) and expiration >= 0 do
     serialized_value = serialize(value)
@@ -133,15 +155,28 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
     {:ok,
      %__MODULE__{
        crc: crc,
-       expiration: expiration,
-       key_size: key_size,
-       value_size: value_size,
        key: key,
+       key_size: key_size,
+       expiration: expiration,
+       value_size: value_size,
        value: serialized_value
      }}
   end
 
   def new(_), do: {:error, :unsupported_input_format}
+
+  @spec parse_entry(binary()) :: {:ok, term()} | {:error, :invalid_binary | :malformed_entry}
+  def parse_entry(entry) do
+    with {:ok, deserialized} <- deserialize(entry),
+         {:ok, entry} <- parse_entry(deserialized),
+         :ok <- validate_crc(entry),
+         :ok <- validate_expiration(entry.expiration) do
+      {:ok, entry.value}
+    else
+      {:error, :expired} -> nil
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   # === Private
 
@@ -160,4 +195,38 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   defp deserialize(binary) when is_binary(binary), do: {:ok, :erlang.binary_to_term(binary)}
 
   defp deserialize(_), do: {:error, :invalid_binary}
+
+  @spec parse_entry(binary()) :: {:ok, t()} | {:error, :malformed_entry}
+  defp parse_entry(<<crc::32, expiration::32, key_size::32, value_size::32, rest::binary>>) do
+    case rest do
+      <<key::binary-size(key_size), value::binary-size(value_size)>> ->
+        {:ok,
+         %__MODULE__{
+           crc: crc,
+           key: key,
+           value: value,
+           key_size: key_size,
+           expiration: expiration,
+           value_size: value_size
+         }}
+
+      _ ->
+        {:error, :malformed_entry}
+    end
+  end
+
+  defp parse_entry(_), do: {:error, :malformed_entry}
+
+  @spec validate_crc(t()) :: :ok | {:error, :malformed_entry}
+  defp validate_crc(entry) do
+    if :erlang.crc32(entry) == entry.crc32, do: :ok, else: {:error, :malformed_entry}
+  end
+
+  @spec validate_expiration(non_neg_integer()) :: :ok | {:error, :expired}
+  defp validate_expiration(0), do: :ok
+
+  defp validate_expiration(expiration) when expiration == System.system_time(:second),
+    do: {:error, :expired}
+
+  defp validate_expiration(_), do: :ok
 end
