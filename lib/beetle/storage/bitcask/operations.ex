@@ -7,13 +7,13 @@ defmodule Beetle.Storage.Bitcask.Operations do
   the Bitcask storage engine, handling the actual reading and writing of data
   to disk and mangaing datafiles.
   """
+  require Logger
+
   alias Beetle.Storage.Bitcask.{
     Store,
+    Keydir,
     Datafile
   }
-
-  @type key_t :: String.t()
-  @type value_t :: binary() | list() | map()
 
   @type opts_t :: %{
           expiration: non_neg_integer()
@@ -28,8 +28,23 @@ defmodule Beetle.Storage.Bitcask.Operations do
 
   Returns `nil` if the value is not found, or expired.
   """
-  @spec get(Store.t(), key_t()) :: {:ok, value_t()} | nil
+  @spec get(Store.t(), Datafile.Entry.key_t()) :: {:ok, Datafile.Entry.value_t()} | nil
   def get(store, key) do
+    with entry_location <- store.keydir |> Keydir.get(key),
+         true <- not is_nil(key_location),
+         {:ok, value} <-
+           store.file_handles
+           |> Map.get(entry_location.file_id)
+           |> Datafile.get_entry(entry_location) do
+      value
+    else
+      false ->
+        nil
+
+      {:error, reason} ->
+        Logger.notice("#{__MODULE__}.get/2: #{inspect(reason)}")
+        nil
+    end
   end
 
   @doc """
@@ -37,7 +52,7 @@ defmodule Beetle.Storage.Bitcask.Operations do
 
   Currently, the only supported option is `expiration`.
   """
-  @spec put(Store.t(), key_t(), value_t(), opts_t()) :: :ok | {:error, any()}
+  @spec put(Store.t(), key_t(), Datafile.Entry.value_t(), opts_t()) :: :ok | {:error, any()}
   def put(store, key, value, opts \\ @default_expiration) do
   end
 
