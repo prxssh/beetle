@@ -31,18 +31,17 @@ defmodule Beetle.Storage.Bitcask do
   )
 
   @doc """
-  Creates a new Bitcask instance with the given directory path. If the
-  directory doesn't exist, it will be created.
+  Creates a new Bitcask instance at the given path, creating the directory if
+  it doesn't already exist.
   """
-  @spec new() :: {:ok, t()} | {:error, any()}
-  def new do
-    storage_path = Config.storage_directory()
-
-    with {:ok, keydir} <- Keydir.new(),
-         {:ok, datafile_handles} <- Datafile.open_datafiles(storage_path),
+  @spec new(Path.t()) :: {:ok, t()} | {:error, any()}
+  def new(path) do
+    with :ok <- ensure_created(path),
+         {:ok, keydir} <- Keydir.new(path),
+         {:ok, datafile_handles} <- Datafile.open_datafiles(path),
          active_datafile_id <- map_size(datafile_handles) + 1,
          {:ok, active_datafile_handle} <-
-           storage_path |> Datafile.get_name(active_datafile_id) |> Datafile.new() do
+           path |> Datafile.get_name(active_datafile_id) |> Datafile.new() do
       {:ok,
        %__MODULE__{
          keydir: keydir,
@@ -50,6 +49,47 @@ defmodule Beetle.Storage.Bitcask do
          file_handles: Map.put(datafile_handles, active_datafile_id, active_datafile_handle)
        }}
     else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Closes the store after we're done with it.
+
+  It does the following tasks:
+  - Persists keydir to disk
+  - Sync any pending writes to disk
+  - Close all file handles
+  """
+  @spec close(t()) :: :ok | {:error, any()}
+  def close(store) do
+    with :ok <- Keydir.persist(store.keydir),
+         :ok <- store.file_handles |> Map.get(:active_file) |> Datafile.sync(),
+         :ok <-
+           store.file_handles
+           |> Enum.reduce_while(:ok, fn file_handle, acc ->
+             file_handle
+             |> :file.close()
+             |> case do
+               :ok -> {:cont, acc}
+               {:error, reason} -> {:halt, {:error, reason}}
+             end
+           end) do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # === Private
+
+  @spec ensure_created(String.t()) :: :ok | {:error, any()}
+  defp ensure_created(path) do
+    with false <- File.exists?(path),
+         :ok <- File.mkdir_p(path) do
+      :ok
+    else
+      true -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
