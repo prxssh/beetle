@@ -25,7 +25,7 @@ defmodule Beetle.Storage.Engine do
 
   def get(key), do: GenServer.call(@module, {:get, key})
 
-  def set(key, value, expiration), do: GenServer.call(@module, {:put, key, value, expiration})
+  def put(key, value, expiration), do: GenServer.call(@module, {:put, key, value, expiration})
 
   def delete(keys), do: GenServer.call(@module, {:delete, keys})
 
@@ -47,7 +47,7 @@ defmodule Beetle.Storage.Engine do
     store
     |> Bitcask.put(key, value, expiration)
     |> case do
-      {:ok, updated_store} -> {:noreply, updated_store}
+      {:ok, updated_store} -> {:reply, :ok, updated_store}
       {:error, reason} -> {:reply, {:error, reason}, store}
     end
   end
