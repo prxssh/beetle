@@ -10,7 +10,7 @@ defmodule Beetle.Application do
     children = [
       {Beetle.Server, []},
       {Beetle.Config, path},
-      {Beetle.Storage.Engine, []},
+      {Beetle.Storage.Supervisor, []},
       {Beetle.Server.ClientSupervisor, []}
     ]
 

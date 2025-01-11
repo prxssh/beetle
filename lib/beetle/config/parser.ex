@@ -6,10 +6,12 @@ defmodule Beetle.Config.Parser do
 
   @type t :: %__MODULE__{
           port: pos_integer(),
-          storage_directory: String.t()
+          storage_directory: String.t(),
+          database_shards: pos_integer()
         }
   defstruct(
     port: 6969,
+    database_shards: 1,
     storage_directory: "~/.local/share/beetle"
   )
 
@@ -52,7 +54,8 @@ defmodule Beetle.Config.Parser do
   end
 
   @spec update_config(t(), atom(), String.t()) :: t()
-  defp update_config(config, :port, value), do: %{config | port: String.to_integer(value)}
+  defp update_config(config, :port, value),
+    do: %{config | port: String.to_integer(value)}
 
   defp update_config(config, :storage_directory, value) do
     path = Path.expand(value)
@@ -66,6 +69,9 @@ defmodule Beetle.Config.Parser do
       error -> raise error
     end
   end
+
+  defp update_config(config, :database_shards, value),
+    do: %{config | database_shards: String.to_integer(value)}
 
   defp update_config(config, _, _), do: config
 end

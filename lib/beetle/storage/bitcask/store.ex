@@ -38,7 +38,8 @@ defmodule Beetle.Storage.Bitcask do
   """
   @spec new(Path.t()) :: {:ok, t()} | {:error, any()}
   def new(path) do
-    with {:ok, datafile_handles} <- Datafile.open_datafiles(path),
+    with :ok <- ensure_directory(path),
+         {:ok, datafile_handles} <- Datafile.open_datafiles(path),
          {:ok, keydir} <- Keydir.new(path, datafile_handles),
          active_datafile_id <- map_size(datafile_handles) + 1,
          {:ok, active_datafile_handle} <-
@@ -273,7 +274,7 @@ defmodule Beetle.Storage.Bitcask do
   @spec recreate_store(Path.t(), Path.t(), Datafile.t(), Keydir.t()) ::
           {:ok, t()} | {:error, any()}
   defp recreate_store(base_path, curr_path, merged_datafile, merged_keydir) do
-    dest_path = base_path |> Datafile.new(0)
+    dest_path = base_path |> Datafile.get_name(0)
 
     with :ok <- Datafile.close(merged_datafile),
          :ok <- :file.rename(curr_path, dest_path),
@@ -286,6 +287,17 @@ defmodule Beetle.Storage.Bitcask do
          file_handles: %{0 => datafile}
        }}
     else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec ensure_directory(Path.t()) :: :ok | {:error, any()}
+  defp ensure_directory(path) do
+    with false <- File.exists?(path),
+         :ok <- :file.make_dir(path) do
+      :ok
+    else
+      true -> :ok
       {:error, reason} -> {:error, reason}
     end
   end

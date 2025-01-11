@@ -66,7 +66,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
 
     keydir
     |> serialize()
-    |> then(&:file.write_file(path, &1))
+    |> then(&:file.write_file(hints_file_path, &1))
     |> case do
       :ok -> :ok
       error -> error
