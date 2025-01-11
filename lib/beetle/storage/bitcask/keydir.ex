@@ -35,7 +35,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   storage directory or initializes an empty keydir.
   """
   @spec new(String.t(), %{non_neg_integer() => Datafile.t()}) :: {:ok, t()} | {:error, any()}
-  def new(path, datafiles) do
+  def new(path, datafiles \\ %{}) do
     with hints_file_path <- Path.join(path, @hints_file),
          true <- File.exists?(hints_file_path),
          {:ok, binary} <- :file.read_file(hints_file_path),

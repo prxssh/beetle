@@ -238,14 +238,6 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   @spec serialize(term()) :: binary()
   defp serialize(value), do: :erlang.term_to_binary(value)
 
-  @spec deserialize!(binary()) :: term()
-  defp deserialize!(binary) do
-    case deserialize(binary) do
-      {:ok, value} -> {:ok, value}
-      {:error, reason} -> raise reason
-    end
-  end
-
   @spec deserialize(binary()) :: {:ok, term()} | {:error, atom()}
   defp deserialize(binary) when is_binary(binary), do: {:ok, :erlang.binary_to_term(binary)}
 

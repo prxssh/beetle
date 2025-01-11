@@ -19,11 +19,12 @@ defmodule Beetle.Storage.Bitcask do
   }
 
   @type file_id_t :: non_neg_integer()
+  @type file_handle_t :: %{file_id_t() => Datafile.t()}
 
   @type t :: %__MODULE__{
           keydir: Keydir.t(),
           active_file: file_id_t(),
-          file_handles: %{file_id_t() => Datafile.t()}
+          file_handles: file_handle_t()
         }
 
   defstruct(
@@ -168,8 +169,27 @@ defmodule Beetle.Storage.Bitcask do
   from the store.
   """
   @spec merge(t()) :: {:ok, t()} | {:error, any()}
-  def merge(store) do
+  def merge(store) when map_size(store.file_handles) > 1 do
+    merge_dir = Config.storage_directory() |> Path.join("merge")
+    new_datafile_path = merge_dir |> Datafile.get_name(0)
+
+    with :ok <- :file.make_dir(merge_dir),
+         {:ok, merged_file} <- Datafile.new(new_datafile_path),
+         {:ok, {merged_datafile, merged_keydir}} <-
+           populate_new_entries(store.file_handles, merged_file),
+         {:ok, merged_store} <- recreate_store(new_datafile_path, merged_datafile, merged_keydir),
+         :ok <- close(store),
+         :ok <- Keydir.persist(merged_keydir),
+         :ok <- :file.del_dir_r(merge_dir) do
+      {:ok, merged_store}
+    else
+      {:error, reason} ->
+        :file.del_dir_r(merge_dir)
+        {:error, reason}
+    end
   end
+
+  def merge(store), do: {:ok, store}
 
   @doc """
   Creates a new log file (datafile) for the store. 
@@ -202,4 +222,68 @@ defmodule Beetle.Storage.Bitcask do
   end
 
   # === Private
+
+  # Write all the active entries (unexpired, and undeleted) to the new datafile
+  # and keydir.
+  @spec populate_new_entries(file_handle_t(), Datafile.t()) ::
+          {:ok, {Datafile.t(), Keydir.t()}} | {:error, any()}
+  defp populate_new_entries(older_logs, merged_log) do
+    with {:ok, entries} <- collect_entries(older_logs),
+         {:ok, {final_file, final_keydir}} <- write_entries(entries, merged_log) do
+      {:ok, {final_file, final_keydir}}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Aggregates all the active entries from the older datafiles.
+  @spec collect_entries(file_handle_t()) :: {:ok, [Datafile.Entry.t()]} | {:error, any()}
+  defp collect_entries(older_logs) do
+    older_logs
+    |> Enum.reduce_while({:ok, []}, fn {_, datafile}, {:ok, acc} ->
+      datafile.reader
+      |> Datafile.Entry.dump_all(0, datafile.offset)
+      |> case do
+        {:ok, entries} -> {:cont, {:ok, acc ++ Enum.map(entries, fn {_, entry} -> entry end)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  # Writes the active entries to the new datafile and keydir.
+  @spec write_entries([Datafile.Entry.t()], Datafile.t()) ::
+          {:ok, {Datafile.t(), Keydir.t()}} | {:error, any()}
+  defp write_entries(entries, merged_datafile) do
+    entries
+    |> Enum.reduce_while({:ok, {merged_datafile, %{}}}, fn entry, {:ok, {datafile, keydir}} ->
+      datafile
+      |> Datafile.write(entry.key, entry.value, entry.expiration)
+      |> case do
+        {:ok, updated_datafile} ->
+          updated_keydir = Keydir.put(keydir, entry.key, 0, datafile.offset)
+          {:cont, {:ok, {updated_datafile, updated_keydir}}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  @spec recreate_store(Path.t(), Datafile.t(), Keydir.t()) :: {:ok, t()} | {:error, any()}
+  defp recreate_store(curr_path, merged_datafile, merged_keydir) do
+    dest_path = Config.storage_directory() |> Datafile.get_name(0)
+
+    with :ok <- Datafile.close(merged_datafile),
+         :ok <- :file.rename(curr_path, dest_path),
+         {:ok, datafile} <- Datafile.new(dest_path) do
+      {:ok,
+       %__MODULE__{
+         active_file: 0,
+         keydir: merged_keydir,
+         file_handles: %{0 => datafile}
+       }}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
 end
