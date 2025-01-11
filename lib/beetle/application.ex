@@ -9,8 +9,9 @@ defmodule Beetle.Application do
 
     children = [
       {Beetle.Server, []},
-      {Beetle.Server.ClientSupervisor, []},
-      {Beetle.Config, path}
+      {Beetle.Config, path},
+      {Beetle.Storage.Engine, []},
+      {Beetle.Server.ClientSupervisor, []}
     ]
 
     opts = [strategy: :one_for_one, name: Beetle.Supervisor]
