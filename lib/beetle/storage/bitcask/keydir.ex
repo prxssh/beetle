@@ -15,7 +15,6 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   - `value_pos` : offset position in the datafile where the value starts
   - `timestamp` : when the entry was written
   """
-  alias Beetle.Config
   alias Beetle.Storage.Bitcask.Datafile
 
   @type t :: %{key_t() => value_t()}
@@ -61,9 +60,9 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   @doc """
   Writes the keydir to a disk, creating a .hints file for faster bootups.
   """
-  @spec persist(t()) :: :ok | {:error, any()}
-  def persist(keydir) do
-    path = Config.storage_directory() |> Path.join(@hints_file)
+  @spec persist(t(), Path.t()) :: :ok | {:error, any()}
+  def persist(keydir, path) do
+    hints_file_path = Path.join(path, @hints_file)
 
     keydir
     |> serialize()
