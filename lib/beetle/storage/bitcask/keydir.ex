@@ -16,6 +16,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   - `timestamp` : when the entry was written
   """
   alias Beetle.Config
+  alias Beetle.Storage.Bitcask.Datafile
 
   @type t :: %{key_t() => value_t()}
 
@@ -27,23 +28,33 @@ defmodule Beetle.Storage.Bitcask.Keydir do
           timestamp: pos_integer()
         }
 
-  @keydir_file_name "beetle.hints"
+  @hints_file "beetle.hints"
 
   @doc """
   Creates a new keydir, either reading it from the hints file present in the
   storage directory or initializes an empty keydir.
   """
-  @spec new(Path.t()) :: {:ok, t()} | {:error, any()}
-  def new(path) do
-    path = Path.join(path, @keydir_file_name)
-
-    with true <- File.exists?(path),
-         {:ok, data} <- path |> to_charlist() |> :file.read_file(),
-         {:ok, keydir} <- deserialize(data) do
+  @spec new(String.t(), %{non_neg_integer() => Datafile.t()}) :: {:ok, t()} | {:error, any()}
+  def new(path, datafiles) do
+    with hints_file_path <- Path.join(path, @hints_file),
+         true <- File.exists?(hints_file_path),
+         {:ok, binary} <- :file.read_file(hints_file_path),
+         {:ok, keydir} <- deserialize(binary) do
       {:ok, keydir}
     else
-      false -> {:ok, %{}}
-      {:error, reason} -> {:error, reason}
+      false ->
+        datafiles
+        |> Enum.reduce_while({:ok, %{}}, fn {file_id, file_handle}, {:ok, keydir} ->
+          file_id
+          |> build_entries_from_datafile(file_handle)
+          |> case do
+            {:ok, keydir_entries} -> {:cont, {:ok, Map.merge(keydir, keydir_entries)}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -52,9 +63,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   """
   @spec persist(t()) :: :ok | {:error, any()}
   def persist(keydir) do
-    path =
-      Config.storage_directory()
-      |> Path.join(@keydir_file_name)
+    path = Config.storage_directory() |> Path.join(@hints_file)
 
     keydir
     |> serialize()
@@ -124,4 +133,22 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   end
 
   defp valid_value?(_), do: false
+
+  @spec build_entries_from_datafile(non_neg_integer(), :file.io_device()) ::
+          {:ok, t()} | {:error, any()}
+  defp build_entries_from_datafile(file_id, handle) do
+    handle
+    |> Datafile.dump_all_entries()
+    |> case do
+      {:ok, entries} ->
+        {:ok,
+         entries
+         |> Enum.reduce(%{}, fn {offset, entry}, keydir ->
+           put(keydir, entry.key, file_id, offset)
+         end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 end

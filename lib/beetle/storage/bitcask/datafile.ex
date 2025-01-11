@@ -113,6 +113,10 @@ defmodule Beetle.Storage.Bitcask.Datafile do
     end
   end
 
+  @doc "Dumps all entries in the datafile"
+  @spec dump_all_entries(t()) :: {:ok, [{non_neg_integer(), Entry.t()}]} | {:error, any()}
+  def dump_all_entries(datafile), do: Entry.dump_all(datafile.reader, 0, datafile.offset)
+
   # ==== Private
 
   defp extract_file_id_from_path(path) do
@@ -176,26 +180,60 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
     <<crc::32>> <> entry
   end
 
-  @spec get(:file.io_device(), non_neg_integer()) :: {:ok, value_t()} | {:error, any()}
+  @spec get(:file.io_device(), non_neg_integer()) ::
+          {:ok, t()} | {:error, :expired | :deleted | any()}
   def get(io_device, pos) do
+    with {:ok, entry} <- read(io_device, pos),
+         false <- expired?(entry),
+         false <- deleted?(entry) do
+      {:ok, entry.value}
+    else
+      true -> {:ok, nil}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec dump_all(:file.io_device(), non_neg_integer(), non_neg_integer(), list()) ::
+          {:ok, [{non_neg_integer(), t()}]} | {:error, any()}
+  def dump_all(io_device, current_offset, max_offset, acc \\ [])
+
+  def dump_all(_io_device, current_offset, max_offset, acc)
+      when current_offset >= max_offset,
+      do: {:ok, acc}
+
+  def dump_all(io_device, current_offset, max_offset, acc) do
+    io_device
+    |> read(current_offset)
+    |> case do
+      {:error, reason} ->
+        {:error, reason}
+
+      {:ok, entry} ->
+        new_acc =
+          if expired?(entry) or deleted?(entry), do: acc, else: [{current_offset, entry} | acc]
+
+        next_offset = @header_size + entry.key_size + entry.value_size
+
+        dump_all(io_device, next_offset, max_offset, new_acc)
+    end
+  end
+
+  # === Private
+
+  @spec read(:file.io_device(), non_neg_integer()) :: {:ok, t()} | {:error, any()}
+  defp read(io_device, pos) do
     with {:ok, <<_::32, _::32, key_size::32, value_size::32>>} <-
            :file.pread(io_device, pos, @header_size),
          total_size <- @header_size + key_size + value_size,
          {:ok, binary} <- :file.pread(io_device, pos, total_size),
          {:ok, entry} <- decode_entry(binary),
          :ok <- validate_crc(entry),
-         :ok <- validate_expiration(entry.expiration),
-         {:ok, value} <- deserialize(entry.value),
-         :ok <- validate_deleted(value) do
-      {:ok, value}
+         {:ok, value} <- deserialize(entry.value) do
+      {:ok, %__MODULE__{entry | value: value}}
     else
-      {:error, :expired} -> {:ok, nil}
-      {:error, :deleted} -> {:ok, nil}
       {:error, reason} -> {:error, reason}
     end
   end
-
-  # === Private
 
   @spec serialize(term()) :: binary()
   defp serialize(value), do: :erlang.term_to_binary(value)
@@ -243,16 +281,9 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
     if :erlang.crc32(binary) == entry.crc, do: :ok, else: {:error, :malformed_entry}
   end
 
-  @spec validate_expiration(non_neg_integer()) :: :ok | {:error, :expired}
-  defp validate_expiration(0), do: :ok
+  defp expired?(%{expiration: 0}), do: false
+  defp expired?(%{expiration: expiration}), do: System.system_time(:second) < expiration
 
-  defp validate_expiration(expiration) do
-    if expiration > System.system_time(:second), do: :ok, else: {:error, :expired}
-  end
-
-  defp validate_expiration(_), do: :ok
-
-  defp validate_deleted(@tombstone_value), do: {:error, :deleted}
-
-  defp validate_deleted(_), do: :ok
+  defp deleted?(%{value: @tombstone_value}), do: true
+  defp deleted?(_), do: false
 end

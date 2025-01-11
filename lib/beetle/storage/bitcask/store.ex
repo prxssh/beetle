@@ -38,8 +38,8 @@ defmodule Beetle.Storage.Bitcask do
   @spec new() :: {:ok, t()} | {:error, any()}
   def new do
     with path <- Config.storage_directory(),
-         {:ok, keydir} <- Keydir.new(path),
          {:ok, datafile_handles} <- Datafile.open_datafiles(path),
+         {:ok, keydir} <- Keydir.new(path, datafile_handles),
          active_datafile_id <- map_size(datafile_handles) + 1,
          {:ok, active_datafile_handle} <-
            path |> Datafile.get_name(active_datafile_id) |> Datafile.new() do
@@ -65,7 +65,7 @@ defmodule Beetle.Storage.Bitcask do
   @spec close(t()) :: :ok | {:error, any()}
   def close(store) do
     with :ok <- Keydir.persist(store.keydir),
-         :ok <- store.file_handles |> Map.get(:active_file) |> Datafile.sync(),
+         :ok <- store.file_handles |> Map.get(store.active_file) |> Datafile.sync(),
          :ok <-
            store.file_handles
            |> Enum.reduce_while(:ok, fn {_, file_handle}, acc ->
@@ -107,9 +107,9 @@ defmodule Beetle.Storage.Bitcask do
   end
 
   @doc """
-   a key and value in the store with additional options.
+  Write a key-value pair in the store with additional options.
 
-  Currently, the only supported option is `expiration`.
+  Currently, the only supported additonal option is `expiration`.
   """
   @spec put(Bitcask.t(), DataFile.Entry.key_t(), Datafile.Entry.value_t(), non_neg_integer()) ::
           {:ok, t()} | {:error, any()}
@@ -202,15 +202,4 @@ defmodule Beetle.Storage.Bitcask do
   end
 
   # === Private
-
-  @spec ensure_created(String.t()) :: :ok | {:error, any()}
-  defp ensure_created(path) do
-    with false <- File.exists?(path),
-         :ok <- File.mkdir_p(path) do
-      :ok
-    else
-      true -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
 end
