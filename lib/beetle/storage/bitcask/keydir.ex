@@ -50,9 +50,11 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   @doc """
   Writes the keydir to a disk, creating a .hints file for faster bootups.
   """
-  @spec persist(String.t(), t()) :: :ok | {:error, any()}
-  def persist(path, keydir) do
-    path = Path.join(path, @keydir_file_name)
+  @spec persist(t()) :: :ok | {:error, any()}
+  def persist(keydir) do
+    path =
+      Config.storage_directory()
+      |> Path.join(@keydir_file_name)
 
     keydir
     |> serialize()

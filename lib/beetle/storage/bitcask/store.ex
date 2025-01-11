@@ -33,12 +33,11 @@ defmodule Beetle.Storage.Bitcask do
   )
 
   @doc """
-  Creates a new Bitcask instance at the given path, creating the directory if
-  it doesn't already exist.
+  Creates a new Bitcask instance at the storage directory.
   """
-  @spec new(Path.t()) :: {:ok, t()} | {:error, any()}
-  def new(path) do
-    with :ok <- ensure_created(path),
+  @spec new() :: {:ok, t()} | {:error, any()}
+  def new do
+    with path <- Config.storage_directory(),
          {:ok, keydir} <- Keydir.new(path),
          {:ok, datafile_handles} <- Datafile.open_datafiles(path),
          active_datafile_id <- map_size(datafile_handles) + 1,
@@ -179,6 +178,19 @@ defmodule Beetle.Storage.Bitcask do
   """
   @spec log_rotation(t()) :: {:ok, t()} | {:error, any()}
   def log_rotation(store) do
+    new_file_id = store.active_file + 1
+
+    Config.storage_directory()
+    |> Datafile.get_name(new_file_id)
+    |> Datafile.new()
+    |> case do
+      {:ok, new_active_log} ->
+        updated_file_handles = Map.put(store.file_handles, new_file_id, new_active_log)
+        {:ok, %{store | active_file: new_file_id, file_handles: updated_file_handles}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @doc "Force any writes to sync to disk."
