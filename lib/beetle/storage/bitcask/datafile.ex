@@ -19,9 +19,9 @@ defmodule Beetle.Storage.Bitcask.Datafile do
         }
   defstruct [:writer, :reader, :offset]
 
-  @default_read_buf_size 256 * 1024
+  @default_read_buf_size 128 * 1024
   @default_write_buf_size 128 * 1024
-  @default_flush_interval :timer.seconds(5)
+  @default_flush_interval :timer.seconds(2)
 
   @doc """
   Opens all the datafile(s) at path for reading.
@@ -95,10 +95,11 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   def get_name(path, file_id), do: Path.join(path, "beetle_#{file_id}.db")
 
   @doc "Fetches the entry from the datafile stored at a particular position."
-  @spec get(t(), non_neg_integer()) :: {:ok, Datafile.Entry.value_t()} | {:error, any()}
-  def get(datafile, pos) do
+  @spec get(t(), non_neg_integer(), non_neg_integer()) ::
+          {:ok, Datafile.Entry.value_t()} | {:error, any()}
+  def get(datafile, pos, size) do
     datafile.reader
-    |> Entry.get(pos)
+    |> Entry.get(pos, size)
     |> case do
       {:ok, value} -> {:ok, value}
       {:error, reason} -> {:error, reason}
@@ -110,7 +111,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   new offset.
   """
   @spec write(t(), Entry.key_t(), Entry.value_t(), non_neg_integer()) ::
-          {:ok, t()} | {:error, any()}
+          {:ok, {t(), non_neg_integer()}} | {:error, any()}
   def write(datafile, key, value, expiration) do
     entry = Entry.new(key, value, expiration)
     size = byte_size(entry)
@@ -119,7 +120,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
     datafile.writer
     |> :file.write(entry)
     |> case do
-      :ok -> {:ok, %{datafile | offset: position + size}}
+      :ok -> {:ok, {%{datafile | offset: position + size}, size}}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -160,6 +161,8 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   Values can be any Erlang/Elixir term (lists, maps, sets, tuples, etc) as they
   are automatically serialized before storage and deserialized upon retrieval.
   """
+  import Beetle.Utils
+
   @type key_t :: String.t()
   @type value_t :: term()
 
@@ -172,10 +175,10 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
           value: binary()
         }
 
-  defstruct [:crc, :expiration, :key_size, :value_size, :key, :value]
-
   @header_size 16
-  @tombstone_value "--DEL--"
+  @tombstone_value <<0>>
+
+  defstruct [:crc, :expiration, :key_size, :value_size, :key, :value]
 
   def deleted_sentinel, do: @tombstone_value
 
@@ -185,24 +188,20 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
     serialized_value = serialize(value)
     value_size = byte_size(serialized_value)
 
-    entry = [
-      <<expiration::32, key_size::32, value_size::32>>,
-      key,
-      serialized_value
-    ]
-
+    entry = [<<expiration::32, key_size::32, value_size::32>>, key, serialized_value]
+    checksum = :erlang.crc32(entry)
     binary = :erlang.iolist_to_binary(entry)
-    crc = :erlang.crc32(entry)
 
-    <<crc::32, binary::binary>>
+    <<checksum::32, binary::binary>>
   end
 
-  @spec get(:file.io_device(), non_neg_integer()) ::
+  @spec get(:file.io_device(), non_neg_integer(), non_neg_integer()) ::
           {:ok, t()} | {:error, :expired | :deleted | any()}
-  def get(io_device, pos) do
-    with {:ok, entry} <- read(io_device, pos),
-         false <- expired?(entry),
-         false <- deleted?(entry) do
+  def get(io_device, pos, size) do
+    with {:ok, binary} <- :file.pread(io_device, pos, size),
+         {:ok, entry} <- decode_entry(binary),
+         false <- expired?(entry.expiration),
+         false <- deleted?(entry.value) do
       {:ok, entry.value}
     else
       true -> {:ok, nil}
@@ -211,27 +210,29 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   end
 
   @spec dump_all(:file.io_device(), non_neg_integer(), non_neg_integer(), list()) ::
-          {:ok, [{non_neg_integer(), t()}]} | {:error, any()}
+          {:ok, [%{pos: non_neg_integer(), size: non_neg_integer(), entry: t()}]}
+          | {:error, any()}
   def dump_all(io_device, current_offset, max_offset, acc \\ [])
 
-  def dump_all(_io_device, current_offset, max_offset, acc)
-      when current_offset >= max_offset,
-      do: {:ok, acc}
+  def dump_all(_, current_offset, max_offset, acc) when current_offset >= max_offset,
+    do: {:ok, acc}
 
   def dump_all(io_device, current_offset, max_offset, acc) do
     io_device
     |> read(current_offset)
     |> case do
-      {:error, reason} ->
-        {:error, reason}
-
       {:ok, entry} ->
-        new_acc =
-          if expired?(entry) or deleted?(entry), do: acc, else: [{current_offset, entry} | acc]
-
         next_offset = current_offset + @header_size + entry.key_size + entry.value_size
 
+        new_acc =
+          if expired?(entry) or deleted?(entry),
+            do: acc,
+            else: [%{pos: current_offset, size: next_offset, entry: entry} | acc]
+
         dump_all(io_device, next_offset, max_offset, new_acc)
+
+      error ->
+        error
     end
   end
 
@@ -242,57 +243,40 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
     with {:ok, <<_::32, _::32, key_size::32, value_size::32>>} <-
            :file.pread(io_device, pos, @header_size),
          total_size <- @header_size + key_size + value_size,
-         {:ok, binary} <- :file.pread(io_device, pos, total_size),
-         {:ok, entry} <- decode_entry(binary),
-         :ok <- validate_crc(entry),
-         {:ok, value} <- deserialize(entry.value) do
-      {:ok, %__MODULE__{entry | value: value}}
+         {:ok, binary} <- :file.pread(io_device, pos, total_size) do
+      decode_entry(binary)
     else
       {:error, reason} -> {:error, reason}
     end
   end
 
-  @spec serialize(term()) :: binary()
-  defp serialize(value), do: :erlang.term_to_binary(value, [:deterministic, :compressed])
-
-  @spec deserialize(binary()) :: {:ok, term()} | {:error, atom()}
-  defp deserialize(binary) when is_binary(binary), do: {:ok, :erlang.binary_to_term(binary)}
-
-  defp deserialize(_), do: {:error, :invalid_binary}
-
-  @spec decode_entry(binary()) :: {:ok, t()} | {:error, :malformed_entry}
+  @spec decode_entry(binary()) ::
+          {:ok, t()} | {:error, :entry_invalid_checksum | :entry_invalid_format}
   defp decode_entry(<<crc::32, expiration::32, key_size::32, value_size::32, rest::binary>>) do
-    case rest do
-      <<key::binary-size(key_size), value::binary-size(value_size)>> ->
-        {:ok,
-         %__MODULE__{
-           crc: crc,
-           key: key,
-           value: value,
-           key_size: key_size,
-           expiration: expiration,
-           value_size: value_size
-         }}
-
-      _ ->
-        {:error, :malformed_entry}
+    with <<key::binary-size(key_size), value::binary-size(value_size)>> <- rest,
+         entry_binary =
+           <<expiration::32, key_size::32, value_size::32, key::binary, value::binary>>,
+         true <- :erlang.crc32(entry_binary) == crc,
+         {:ok, value} <- deserialize(value) do
+      {:ok,
+       %__MODULE__{
+         crc: crc,
+         key: key,
+         value: value,
+         key_size: key_size,
+         value_size: value_size,
+         expiration: expiration
+       }}
+    else
+      false -> {:error, :entry_invalid_checksum}
+      _ -> {:error, :entry_invalid_format}
     end
   end
 
-  defp decode_entry(_), do: {:error, :malformed_entry}
+  defp expired?(0), do: false
+  defp expired?(expiration), do: System.system_time(:millisecond) >= expiration
 
-  @spec validate_crc(t()) :: :ok | {:error, :malformed_entry}
-  defp validate_crc(entry) do
-    binary =
-      <<entry.expiration::32, entry.key_size::32, entry.value_size::32>> <>
-        entry.key <> entry.value
+  defp deleted?(@tombstone_value), do: true
 
-    if :erlang.crc32(binary) == entry.crc, do: :ok, else: {:error, :malformed_entry}
-  end
-
-  defp expired?(%{expiration: 0}), do: false
-  defp expired?(%{expiration: expiration}), do: System.system_time(:second) < expiration
-
-  defp deleted?(%{value: @tombstone_value}), do: true
   defp deleted?(_), do: false
 end

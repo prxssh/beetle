@@ -11,7 +11,7 @@ defmodule Beetle.Config.Parser do
         }
   defstruct(
     port: 6969,
-    database_shards: 1,
+    database_shards: System.schedulers_online(),
     storage_directory: "~/.local/share/beetle"
   )
 

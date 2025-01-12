@@ -24,7 +24,7 @@ defmodule Beetle.Storage.Supervisor do
         for shard_id <- 0..(shards - 1) do
           %{
             restart: :permanent,
-            id: {:storage_engine, shard_id},
+            id: {:bitcask_shard, shard_id},
             start: {Beetle.Storage.Engine, :start_link, [shard_id]}
           }
         end

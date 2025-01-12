@@ -44,6 +44,8 @@ defmodule Beetle.Storage.Bitcask do
          active_datafile_id <- map_size(datafile_handles) + 1,
          {:ok, active_datafile_handle} <-
            path |> Datafile.get_name(active_datafile_id) |> Datafile.new() do
+      dbg(keydir)
+
       {:ok,
        %__MODULE__{
          path: path,
@@ -96,7 +98,7 @@ defmodule Beetle.Storage.Bitcask do
          {:ok, value} <-
            store.file_handles
            |> Map.get(entry_location.file_id)
-           |> Datafile.get(entry_location.value_pos) do
+           |> Datafile.get(entry_location.value_pos, entry_location.value_size) do
       value
     else
       false ->
@@ -120,9 +122,15 @@ defmodule Beetle.Storage.Bitcask do
     active_datafile
     |> Datafile.write(key, value, expiration)
     |> case do
-      {:ok, updated_datafile} ->
+      {:ok, {updated_datafile, value_size}} ->
         updated_file_handles = Map.put(store.file_handles, store.active_file, updated_datafile)
-        updated_keydir = Keydir.put(store.keydir, key, store.active_file, active_datafile.offset)
+
+        updated_keydir =
+          Keydir.put(store.keydir, key, %{
+            value_size: value_size,
+            file_id: store.active_file,
+            value_pos: active_datafile.offset
+          })
 
         {:ok, %{store | file_handles: updated_file_handles, keydir: updated_keydir}}
 
@@ -261,7 +269,14 @@ defmodule Beetle.Storage.Bitcask do
       |> Datafile.write(entry.key, entry.value, entry.expiration)
       |> case do
         {:ok, updated_datafile} ->
-          updated_keydir = Keydir.put(keydir, entry.key, 0, datafile.offset)
+          # TODO
+          updated_keydir =
+            Keydir.put(keydir, entry.key, %{
+              file_id: 0,
+              value_pos: 0,
+              value_size: 0
+            })
+
           {:cont, {:ok, {updated_datafile, updated_keydir}}}
 
         {:error, reason} ->

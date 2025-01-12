@@ -15,73 +15,52 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   - `value_pos` : offset position in the datafile where the value starts
   - `timestamp` : when the entry was written
   """
-  alias Beetle.Storage.Bitcask.Datafile
-
-  @type t :: %{key_t() => value_t()}
+  import Beetle.Utils
+  alias Beetle.Storage.Bitcask
 
   @type key_t :: String.t()
-
   @type value_t :: %{
-          file_id: pos_integer(),
-          value_pos: pos_integer(),
-          timestamp: pos_integer()
+          file_id: non_neg_integer(),
+          value_pos: non_neg_integer(),
+          value_size: non_neg_integer()
         }
+
+  @type t :: %{key_t() => value_t()}
 
   @hints_file "beetle.hints"
 
   @doc """
-  Creates a new keydir, either reading it from the hints file present in the
-  storage directory or initializes an empty keydir.
+  Creates a keydir, either reading form thie hints file located at path, or by
+  reading the raw entries from the datafiles.
   """
-  @spec new(String.t(), %{non_neg_integer() => Datafile.t()}) :: {:ok, t()} | {:error, any()}
+  @spec new(String.t(), Bitcask.file_handle_t()) :: {:ok, t()} | {:error, any()}
   def new(path, datafiles \\ %{}) do
-    with hints_file_path <- Path.join(path, @hints_file),
-         true <- File.exists?(hints_file_path),
-         {:ok, binary} <- :file.read_file(hints_file_path),
-         {:ok, keydir} <- deserialize(binary) do
+    hints_path = Path.join(path, @hints_file)
+
+    with true <- File.exists?(hints_path),
+         {:ok, binary} <- :file.read_file(hints_path),
+         {:ok, keydir} <- deserialize(binary),
+         :ok <- validate_keydir(keydir) do
       {:ok, keydir}
     else
-      false ->
-        datafiles
-        |> Enum.reduce_while({:ok, %{}}, fn {file_id, file_handle}, {:ok, keydir} ->
-          file_id
-          |> build_entries_from_datafile(file_handle)
-          |> case do
-            {:ok, keydir_entries} -> {:cont, {:ok, Map.merge(keydir, keydir_entries)}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-        end)
-
-      {:error, reason} ->
-        {:error, reason}
+      false -> build_from_datafiles(datafiles)
+      {:error, reason} -> {:error, reason}
     end
   end
 
   @doc """
-  Writes the keydir to a disk, creating a .hints file for faster bootups.
+  Writes the keydir to disk, creating a .hints file for faster bootups.
   """
   @spec persist(t(), Path.t()) :: :ok | {:error, any()}
   def persist(keydir, path) do
-    hints_file_path = Path.join(path, @hints_file)
-
-    keydir
-    |> serialize()
-    |> then(&:file.write_file(hints_file_path, &1))
-    |> case do
-      :ok -> :ok
-      error -> error
-    end
+    path
+    |> Path.join(@hints_file)
+    |> :file.write(serialize(keydir))
   end
 
   @doc "Puts a new entry in the keydir"
-  @spec put(t(), String.t(), non_neg_integer(), non_neg_integer()) :: t()
-  def put(keydir, key, file_id, value_pos) do
-    Map.put(keydir, key, %{
-      file_id: file_id,
-      value_pos: value_pos,
-      timestamp: System.system_time(:second)
-    })
-  end
+  @spec put(t(), String.t(), value_t()) :: t()
+  def put(keydir, key, value), do: Map.put(keydir, key, value)
 
   @doc """
   Gets an entry from the keydir.
@@ -97,57 +76,56 @@ defmodule Beetle.Storage.Bitcask.Keydir do
 
   # ==== Private
 
-  # Serializes the keydir to binary format.
-  #
-  #  It comes in handy when we want to persist the keydir to disk after merging is
-  #  complete.
-  @spec serialize(t()) :: binary()
-  defp serialize(keydir) when is_map(keydir), do: :erlang.term_to_binary(keydir)
-
-  @spec deserialize(binary()) :: {:ok, t()} | {:error, :invalid_format}
-  defp deserialize(binary) when is_binary(binary) do
-    term = :erlang.binary_to_term(binary)
-
-    if valid_keydir?(term), do: {:ok, term}, else: {:error, :invalid_format}
-  end
-
-  defp valid_keydir?(map) when is_map(map),
-    do: Enum.all?(map, fn {key, value} -> is_binary(key) and valid_value?(value) end)
-
-  defp valid_keydir?(_), do: false
-
-  @spec valid_value?(map()) :: boolean()
-  defp valid_value?(value) when is_map(value) do
-    required_keys = [:file_id, :value_size, :value_pos, :timestamp]
-    has_all_keys? = Enum.all?(required_keys, &Map.has_key?(value, &1))
-
-    has_all_keys? and
-      is_integer(value.file_id) and
-      value.file_id >= 0 and
-      is_integer(value.value_size) and
-      value.value_size > 0 and
-      is_integer(value.value_pos) and
-      value.value_pos >= 0 and
-      is_integer(value.timestamp)
-  end
-
-  defp valid_value?(_), do: false
-
-  @spec build_entries_from_datafile(non_neg_integer(), :file.io_device()) ::
-          {:ok, t()} | {:error, any()}
-  defp build_entries_from_datafile(file_id, handle) do
-    handle
-    |> Datafile.dump_all_entries()
+  @spec validate_keydir(t()) :: :ok | {:error, atom()}
+  defp validate_keydir(keydir) when is_map(keydir) do
+    keydir
+    |> Enum.all?(&valid_entry?/1)
     |> case do
-      {:ok, entries} ->
-        {:ok,
-         entries
-         |> Enum.reduce(%{}, fn {offset, entry}, keydir ->
-           put(keydir, entry.key, file_id, offset)
-         end)}
-
-      {:error, reason} ->
-        {:error, reason}
+      true -> :ok
+      false -> {:error, :invalid_keydir_format}
     end
+  end
+
+  defp validate_keydir(_), do: {:error, :invalid_keydir_format}
+
+  @spec valid_entry?({key_t(), value_t()}) :: boolean()
+  defp valid_entry?({key, value}) when is_binary(key) and is_map(value) do
+    required_keys = [:file_id, :value_pos, :value_size, :timestamp]
+
+    with true <- Enum.all?(required_keys, &Map.has_key?(value, &1)),
+         true <- is_integer(value.file_id) and value.file_id > -1,
+         true <- is_integer(value.value_pos) and value.value_pos > -1,
+         true <- is_integer(value.value_size) and value.value_size > -1 do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  @spec build_from_datafiles(Bitcask.file_handle_t()) :: {:ok, t()} | {:error, any()}
+  defp build_from_datafiles(datafiles) do
+    datafiles
+    |> Enum.reduce_while({:ok, %{}}, fn {file_id, datafile}, {:ok, keydir} ->
+      datafile.reader
+      |> Bitcask.Datafile.Entry.dump_all(0, datafile.offset)
+      |> case do
+        {:ok, entries} ->
+          # TODO: not working correctly
+          updated_keydir =
+            entries
+            |> Enum.reduce(keydir, fn %{pos: pos, size: size, entry: entry}, acc ->
+              Map.put(keydir, entry.key, %{
+                value_pos: pos,
+                value_size: size,
+                file_id: file_id
+              })
+            end)
+
+          {:cont, {:ok, updated_keydir}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
   end
 end
