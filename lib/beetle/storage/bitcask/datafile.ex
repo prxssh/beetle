@@ -45,9 +45,17 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   @spec new(charlist() | String.t()) :: {:ok, t()} | {:error, atom()}
   def new(path) do
     path = to_charlist(path)
+    write_buffer = 64 * 1024
 
-    with {:ok, writer} <- :file.open(path, [:append, :raw, :binary, :delayed_write]),
-         {:ok, reader} <- :file.open(path, [:read, :raw, :binary, :read_ahed]),
+    with {:ok, writer} <-
+           :file.open(path, [
+             :append,
+             :raw,
+             :binary,
+             {:delayed_write, write_buffer, 1000},
+             write_memory: true
+           ]),
+         {:ok, reader} <- :file.open(path, [:read, :raw, :binary, {:read_ahead, write_buffer}]),
          {:ok, file_size} <- get_file_size(reader) do
       {:ok, %__MODULE__{writer: writer, reader: reader, offset: file_size}}
     else
@@ -174,10 +182,16 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
     serialized_value = serialize(value)
     value_size = byte_size(serialized_value)
 
-    entry = <<expiration::32, key_size::32, value_size::32>> <> key <> serialized_value
+    entry = [
+      <<expiration::32, key_size::32, value_size::32>>,
+      key,
+      serialized_value
+    ]
+
+    binary = :erlang.iolist_to_binary(entry)
     crc = :erlang.crc32(entry)
 
-    <<crc::32>> <> entry
+    <<crc::32, binary::binary>>
   end
 
   @spec get(:file.io_device(), non_neg_integer()) ::
@@ -212,7 +226,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
         new_acc =
           if expired?(entry) or deleted?(entry), do: acc, else: [{current_offset, entry} | acc]
 
-        next_offset = @header_size + entry.key_size + entry.value_size
+        next_offset = current_offset + @header_size + entry.key_size + entry.value_size
 
         dump_all(io_device, next_offset, max_offset, new_acc)
     end
@@ -236,7 +250,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   end
 
   @spec serialize(term()) :: binary()
-  defp serialize(value), do: :erlang.term_to_binary(value)
+  defp serialize(value), do: :erlang.term_to_binary(value, [:deterministic, :compressed])
 
   @spec deserialize(binary()) :: {:ok, term()} | {:error, atom()}
   defp deserialize(binary) when is_binary(binary), do: {:ok, :erlang.binary_to_term(binary)}

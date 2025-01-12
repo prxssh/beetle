@@ -15,6 +15,7 @@ defmodule Beetle.Application do
     ]
 
     opts = [strategy: :one_for_one, name: Beetle.Supervisor]
+
     Supervisor.start_link(children, opts)
   end
 

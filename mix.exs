@@ -13,7 +13,7 @@ defmodule Beetle.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :tools, :runtime_tools],
       mod: {Beetle.Application, []}
     ]
   end

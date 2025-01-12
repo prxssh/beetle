@@ -46,7 +46,7 @@ defmodule Beetle.Storage.Engine do
 
   @impl true
   def init(shard_id) do
-    Logger.notice("#{__MODULE__}: starting bitcask on shard #{shard_id}")
+    # Logger.notice("#{__MODULE__}: starting bitcask on shard #{shard_id}")
 
     Config.storage_directory()
     |> Path.join("shard_#{shard_id}")
@@ -59,14 +59,14 @@ defmodule Beetle.Storage.Engine do
 
   @impl true
   def handle_call({:get, key}, _from, {store, shard_id}) do
-    Logger.notice("#{__MODULE__}: get '#{key}' on shard #{shard_id}")
+    # Logger.notice("#{__MODULE__}: get '#{key}' on shard #{shard_id}")
 
     {:reply, Bitcask.get(store, key), {store, shard_id}}
   end
 
   @impl true
   def handle_call({:put, key, value, expiration}, _from, {store, shard_id}) do
-    Logger.notice("#{__MODULE__}: put '#{key}-#{inspect(value)}' on shard #{shard_id}")
+    # Logger.notice("#{__MODULE__}: put '#{key}-#{inspect(value)}' on shard #{shard_id}")
 
     store
     |> Bitcask.put(key, value, expiration)

@@ -36,9 +36,12 @@ defmodule Beetle.Server.ClientHandler do
   messages and sending messages. Each instance handles one client socket in
   active mode, receiving TCP messages as Erlang messages. 
   """
-
   use GenServer
+
   require Logger
+
+  alias Beetle.Command
+  alias Beetle.Protocol.Encoder
 
   # === Client
 
@@ -51,7 +54,13 @@ defmodule Beetle.Server.ClientHandler do
 
   @impl true
   def handle_info({:tcp, _socket, data}, socket) do
-    handle_received_data(data, socket)
+    data
+    |> Command.parse()
+    |> case do
+      {:ok, parsed_command} -> Command.execute(parsed_command)
+      error -> Encoder.encode(error)
+    end
+    |> then(&:gen_tcp.send(socket, &1))
 
     {:noreply, socket}
   end
@@ -65,14 +74,5 @@ defmodule Beetle.Server.ClientHandler do
   def handle_info({:tcp_error, _socket, reason}, socket) do
     Logger.error("TCP error: #{inspect(reason)}")
     {:stop, reason, socket}
-  end
-
-  # === Private
-
-  defp handle_received_data(data, client_socket) do
-    data = String.trim(data)
-    Logger.info("Received from client: #{data}")
-
-    :gen_tcp.send(client_socket, "ACK\n")
   end
 end

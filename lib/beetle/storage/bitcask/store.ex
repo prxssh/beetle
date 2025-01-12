@@ -89,7 +89,7 @@ defmodule Beetle.Storage.Bitcask do
 
   Returns `nil` if the value is not found, or expired.
   """
-  @spec get(t(), Datafile.Entry.key_t()) :: {:ok, Datafile.Entry.value_t()} | nil
+  @spec get(t(), Datafile.Entry.key_t()) :: Datafile.Entry.value_t() | nil
   def get(store, key) do
     with entry_location <- store.keydir |> Keydir.get(key),
          true <- not is_nil(entry_location),
@@ -103,7 +103,6 @@ defmodule Beetle.Storage.Bitcask do
         nil
 
       {:error, reason} ->
-        Logger.notice("#{__MODULE__}.get/2: #{inspect(reason)}")
         nil
     end
   end

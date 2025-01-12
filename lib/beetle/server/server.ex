@@ -56,7 +56,7 @@ defmodule Beetle.Server do
   def init(opts) do
     port = Keyword.get(opts, :port, 6969)
 
-    case :gen_tcp.listen(port, [:binary, packet: :line, active: false, reuseaddr: true]) do
+    case :gen_tcp.listen(port, [:binary, active: false, reuseaddr: true, ip: {0, 0, 0, 0}]) do
       {:ok, listen_socket} ->
         GenServer.cast(self(), :accept)
         {:ok, listen_socket}
@@ -76,7 +76,7 @@ defmodule Beetle.Server do
   def handle_cast(:accept, listen_socket) do
     with {:ok, client_socket} <- :gen_tcp.accept(listen_socket),
          {:ok, client_pid} <- Beetle.Server.ClientSupervisor.start_client(client_socket),
-         :ok <- :inet.setopts(client_socket, active: true, packet: :line, buffer: 1024),
+         :ok <- :inet.setopts(client_socket, active: true, buffer: 1024),
          :ok <- :gen_tcp.controlling_process(client_socket, client_pid) do
       GenServer.cast(self(), :accept)
       {:noreply, listen_socket}

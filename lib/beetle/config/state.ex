@@ -11,7 +11,7 @@ defmodule Beetle.Config do
   # === Client
 
   def start_link(path) do
-    parsed_config = Parser.read_config(path) |> dbg
+    parsed_config = Parser.read_config(path)
     Agent.start_link(fn -> parsed_config end, name: @module)
   end
 
