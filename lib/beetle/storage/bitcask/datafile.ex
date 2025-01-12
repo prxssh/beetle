@@ -19,6 +19,10 @@ defmodule Beetle.Storage.Bitcask.Datafile do
         }
   defstruct [:writer, :reader, :offset]
 
+  @default_read_buf_size 256 * 1024
+  @default_write_buf_size 128 * 1024
+  @default_flush_interval :timer.seconds(5)
+
   @doc """
   Opens all the datafile(s) at path for reading.
 
@@ -45,17 +49,16 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   @spec new(charlist() | String.t()) :: {:ok, t()} | {:error, atom()}
   def new(path) do
     path = to_charlist(path)
-    write_buffer = 64 * 1024
 
     with {:ok, writer} <-
            :file.open(path, [
              :append,
              :raw,
              :binary,
-             {:delayed_write, write_buffer, 1000},
-             write_memory: true
+             {:delayed_write, @default_write_buf_size, @default_flush_interval}
            ]),
-         {:ok, reader} <- :file.open(path, [:read, :raw, :binary, {:read_ahead, write_buffer}]),
+         {:ok, reader} <-
+           :file.open(path, [:read, :raw, :binary, {:read_ahead, @default_read_buf_size}]),
          {:ok, file_size} <- get_file_size(reader) do
       {:ok, %__MODULE__{writer: writer, reader: reader, offset: file_size}}
     else
