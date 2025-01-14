@@ -14,7 +14,7 @@ defmodule Beetle.Command do
         }
   defstruct [:command, :args]
 
-  @string_commands ~w(GET SET)
+  @string_commands ~w(GET SET DEL)
   @misc_commands ~w(PING)
 
   @spec parse(String.t()) :: {:ok, t()} | {:error, String.t()}
