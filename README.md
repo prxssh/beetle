@@ -37,26 +37,26 @@ The high-level ambitious plan for the project, in order:
 |  1  | Bitcask Implementation                                    |   ✅   |
 |  2  | Redis Serialization Protocol                              |   ✅   |
 |  3  | Basic commands like GET, SET, DEL                         |   ✅   |
-|  4  | Data types - strings, lists, hashes, bitmaps, bitfields   |   ❌   |
-|  5  | Make it distributed using Raft Consensus Algorithm        |   ❌   |
-|  7  | Support 100K+ read/write operations per second            |   ⚠️    |
+|  4  | Support 100K+ read/write operations per second            |   ✅   |
+|  5  | Data types - strings, lists, hashes, bitmaps, bitfields   |   ❌   |
+|  6  | Make it distributed using Raft Consensus Algorithm        |   ❌   |
 |  N  | Fancy features (to be expanded upon later)                |   ❌   |
 
 ## Benchmarks 
 
-Performance benchmarks using [Redis benchmark](https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/benchmarks/)
-tool with 100K+ operations across 10 million unique keys:
+Performance benchmarks on M4 Macbook Pro using [Redis benchmark](https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/benchmarks/)
+tool with 100K operations across 10 million unique keys:
 
 ### Get Operations
 
 ```bash
-$ redis-benchmark -h localhost -p 6969 -n 100000 -r 10000000 -t get
+$ redis-benchmark -h localhost -p 6969 -n 100000 -r 10000000 -c 100 -t get
 
 Summary:
-  throughput summary: 85324.23 requests per second
+  throughput summary: 136798.91 requests per second
   latency summary (msec):
           avg       min       p50       p95       p99       max
-        0.470     0.096     0.439     0.799     0.975     9.247
+        0.433     0.136     0.407     0.519     1.271     1.751
 ```
 
 ### Set Operations
@@ -67,19 +67,18 @@ Tested with 100 concurrent clients
 $ redis-benchmark -h localhost -p 6969 -n 100000 -r 10000000 -c 100 -t set
 
 Summary:
-  throughput summary: 92165.90 requests per second
+  throughput summary: 137362.64 requests per second
   latency summary (msec):
           avg       min       p50       p95       p99       max
-        0.821     0.144     0.735     1.111     6.167     7.423
+        0.428     0.128     0.407     0.487     1.255     1.559
 ```
 
 ### Performance Summary
 
-- Sustained throughput of 85K-92K operations per second
+- Sustained throughput of 136K+ operations per second
 - Sub-millisecond average latency for both read and write operations
-- P99 latency under 1ms for reads and under 7ms for writes
+- P99 latency under 1.3ms for reads and writes
 - Consistent performance across large keyspace (10M unique keys)
-
 
 ## References
 
