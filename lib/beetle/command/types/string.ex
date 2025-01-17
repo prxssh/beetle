@@ -143,6 +143,18 @@ defmodule Beetle.Command.Types.String do
     Encoder.encode(result)
   end
 
+  def handle("DECR", args) do
+  end
+
+  def handle("DECRYBY", args) do
+  end
+
+  def handle("INCR" args) do
+  end
+
+  def handle("INCRBY" args) do
+  end
+
   # ==== Private
 
   @spec error_command_arguments(String.t()) :: String.t()

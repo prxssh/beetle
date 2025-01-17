@@ -29,6 +29,7 @@ defmodule Beetle.Storage.Engine do
     |> Agent.get(fn store -> store |> Bitcask.get(key) end)
   end
 
+  @spec get_value(String.t()) :: nil | Datafile.Entry.value_t()
   def get_value(key) do
     key
     |> get()

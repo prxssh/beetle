@@ -11,8 +11,10 @@ defmodule Beetle.Config.Parser do
         }
   defstruct(
     port: 6969,
-    database_shards: System.schedulers_online(),
-    storage_directory: "~/.local/share/beetle"
+    merge_interval: :timer.minutes(30),
+    log_rotation_interval: :timer.minutes(30),
+    storage_directory: "~/.local/share/beetle",
+    database_shards: System.schedulers_online()
   )
 
   def read_config(nil), do: %__MODULE__{}

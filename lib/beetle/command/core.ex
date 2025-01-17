@@ -13,8 +13,11 @@ defmodule Beetle.Command do
         }
   defstruct [:command, :args]
 
-  @string_commands ~w(GET SET DEL APPEND GETDEL GETEX GETRANGE STRLEN)
   @misc_commands ~w(PING TTL)
+  @bitmap_commands ~w(BITCOUNT, BITFIELD, BITFIELD_RO, BITOP, BITPOS, GETBIT, SETBIT)
+  @string_commands ~w(GET SET DEL APPEND GETDEL GETEX GETRANGE STRLEN DECR DECRBY INCR INCRBY)
+  @list_commands ~w(LINDEX LINSERT LLEN LMOVE LMPOP LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX)
+  @hash_commands ~w(HDEL HEXISTS HEXPIRE HEXPIREAT HEXPIRETIME HGET HGETALL HINCRBY HKEYS HLEN HMMGET HMSET HPERSIST HPEXPIRE HPEXPIREAT HPEXPIRETIME, HPTTL, HRANDIFIELD, HSCAN, HSET, HSTRLEN, HTTL, HVALS)
 
   @spec parse(String.t()) :: {:ok, t()} | {:error, String.t()}
   def parse(resp_encoded_command) do
@@ -47,8 +50,11 @@ defmodule Beetle.Command do
 
   defp get_command_module(command) do
     cond do
-      command in @string_commands -> {:ok, Types.String}
       command in @misc_commands -> {:ok, Types.Misc}
+      command in @string_commands -> {:ok, Types.String}
+      command in @list_commands -> {:ok, Types.List}
+      command in @hash_commands -> {:ok, Types.Hash}
+      command in @bitmap_commands -> {:ok, Types.Bitmap}
       true -> {:error, "ERR unknown command '#{command}'"}
     end
   end
