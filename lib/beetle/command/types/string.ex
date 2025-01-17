@@ -129,6 +129,20 @@ defmodule Beetle.Command.Types.String do
     end
   end
 
+  def handle("STRLEN", args) when length(args) != 1, do: error_command_arguments("STRLEN")
+
+  def handle("STRLEN", [key]) do
+    len =
+      key
+      |> Storage.Engine.get_value()
+      |> case do
+        nil -> 0
+        value -> String.length(value)
+      end
+
+    Encoder.encode(result)
+  end
+
   # ==== Private
 
   @spec error_command_arguments(String.t()) :: String.t()

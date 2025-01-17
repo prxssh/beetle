@@ -13,7 +13,7 @@ defmodule Beetle.Command do
         }
   defstruct [:command, :args]
 
-  @string_commands ~w(GET SET DEL APPEND GETDEL GETEX GETRANGE GETSET STRLEN SUBSTR)
+  @string_commands ~w(GET SET DEL APPEND GETDEL GETEX GETRANGE STRLEN)
   @misc_commands ~w(PING TTL)
 
   @spec parse(String.t()) :: {:ok, t()} | {:error, String.t()}
