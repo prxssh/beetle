@@ -8,6 +8,8 @@ defmodule Beetle.Protocol.Encoder do
   """
   def encode(nil), do: "_\r\n"
 
+  def encode(:ok), do: "+OK\r\n"
+
   def encode(true), do: "#t\r\n"
 
   def encode(false), do: "#f\r\n"
@@ -26,19 +28,17 @@ defmodule Beetle.Protocol.Encoder do
   def encode(data) when is_map(data) do
     resp_encoded_map =
       data
-      |> Enum.map(fn {k, v} ->
+      |> Enum.map_join(fn {k, v} ->
         encoded_key = encode(k)
         encoded_val = encode(v)
         encoded_key <> encoded_val
       end)
-      |> Enum.join()
 
     "%" <> "#{map_size(data)}" <> "\r\n" <> resp_encoded_map
   end
 
   def encode(data) when is_list(data) do
-    resp_encoded_list = data |> Enum.map(&encode/1) |> Enum.join()
-
+    resp_encoded_list = data |> Enum.map_join(&encode/1)
     "*" <> "#{length(data)}" <> "\r\n" <> resp_encoded_list
   end
 

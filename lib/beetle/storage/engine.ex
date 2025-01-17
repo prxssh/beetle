@@ -2,6 +2,8 @@ defmodule Beetle.Storage.Engine do
   @moduledoc false
   use Agent
 
+  require Logger
+
   alias Beetle.Config
   alias Beetle.Storage.Bitcask
 
@@ -19,24 +21,36 @@ defmodule Beetle.Storage.Engine do
     )
   end
 
+  @spec get(String.t()) :: Datafile.Entry.t() | nil
   def get(key) do
     key
     |> get_shard()
-    |> then(&Agent.get(via_tuple(&1), fn store -> Bitcask.get(store, key) end))
+    |> via_tuple()
+    |> Agent.get(fn store -> store |> Bitcask.get(key) end)
   end
 
+  def get_value(key) do
+    key
+    |> get()
+    |> case do
+      nil -> nil
+      %{value: value} -> value
+    end
+  end
+
+  @spec put(String.t(), term(), non_neg_integer()) :: :ok
   def put(key, value, expiration) do
     key
     |> get_shard()
-    |> then(
-      &Agent.update(via_tuple(&1), fn store ->
-        {:ok, updated_store} = Bitcask.put(store, key, value, expiration)
-        updated_store
-      end)
-    )
+    |> via_tuple()
+    |> Agent.update(fn store ->
+      {:ok, updated_store} = Bitcask.put(store, key, value, expiration)
+      updated_store
+    end)
   end
 
-  def delete(keys) do
+  @spec drop([String.t()]) :: non_neg_integer()
+  def drop(keys) do
     keys
     |> List.wrap()
     |> Enum.group_by(&get_shard/1)

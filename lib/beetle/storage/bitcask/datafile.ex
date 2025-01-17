@@ -8,6 +8,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   immutable and are only used for reads. When the active datafile meets a size
   threshold, it is closed and a new active datafile is created.
   """
+  require Logger
   alias Beetle.Storage.Bitcask.Datafile.Entry
 
   @type io_device_t :: :file.io_device()
@@ -96,12 +97,12 @@ defmodule Beetle.Storage.Bitcask.Datafile do
 
   @doc "Fetches the entry from the datafile stored at a particular position."
   @spec get(t(), non_neg_integer(), non_neg_integer()) ::
-          {:ok, Datafile.Entry.value_t()} | {:error, any()}
+          {:ok, Datafile.Entry.t()} | {:error, any()}
   def get(datafile, pos, size) do
     datafile.reader
     |> Entry.get(pos, size)
     |> case do
-      {:ok, value} -> {:ok, value}
+      {:ok, entry} -> {:ok, entry}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -120,8 +121,11 @@ defmodule Beetle.Storage.Bitcask.Datafile do
     datafile.writer
     |> :file.write(entry)
     |> case do
-      :ok -> {:ok, {%{datafile | offset: position + size}, size}}
-      {:error, reason} -> {:error, reason}
+      :ok ->
+        {:ok, {%{datafile | offset: position + size}, size}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -188,7 +192,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
     serialized_value = serialize(value)
     value_size = byte_size(serialized_value)
 
-    entry = [<<expiration::32, key_size::32, value_size::32>>, key, serialized_value]
+    entry = [<<expiration::64, key_size::32, value_size::32>>, key, serialized_value]
     checksum = :erlang.crc32(entry)
     binary = :erlang.iolist_to_binary(entry)
 
@@ -202,9 +206,10 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
          {:ok, entry} <- decode_entry(binary),
          false <- expired?(entry.expiration),
          false <- deleted?(entry.value) do
-      {:ok, entry.value}
+      {:ok, entry}
     else
       true -> {:ok, nil}
+      :eof -> {:ok, nil}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -240,7 +245,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   @spec read(:file.io_device(), non_neg_integer()) :: {:ok, t()} | {:error, any()}
   defp read(io_device, pos) do
-    with {:ok, <<_::32, _::32, key_size::32, value_size::32>>} <-
+    with {:ok, <<_::32, _::64, key_size::32, value_size::32>>} <-
            :file.pread(io_device, pos, @header_size),
          total_size <- @header_size + key_size + value_size,
          {:ok, binary} <- :file.pread(io_device, pos, total_size) do
@@ -252,10 +257,10 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   @spec decode_entry(binary()) ::
           {:ok, t()} | {:error, :entry_invalid_checksum | :entry_invalid_format}
-  defp decode_entry(<<crc::32, expiration::32, key_size::32, value_size::32, rest::binary>>) do
+  defp decode_entry(<<crc::32, expiration::64, key_size::32, value_size::32, rest::binary>>) do
     with <<key::binary-size(key_size), value::binary-size(value_size)>> <- rest,
          entry_binary =
-           <<expiration::32, key_size::32, value_size::32, key::binary, value::binary>>,
+           <<expiration::64, key_size::32, value_size::32, key::binary, value::binary>>,
          true <- :erlang.crc32(entry_binary) == crc,
          {:ok, value} <- deserialize(value) do
       {:ok,

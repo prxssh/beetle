@@ -44,8 +44,6 @@ defmodule Beetle.Storage.Bitcask do
          active_datafile_id <- map_size(datafile_handles) + 1,
          {:ok, active_datafile_handle} <-
            path |> Datafile.get_name(active_datafile_id) |> Datafile.new() do
-      dbg(keydir)
-
       {:ok,
        %__MODULE__{
          path: path,
@@ -91,20 +89,20 @@ defmodule Beetle.Storage.Bitcask do
 
   Returns `nil` if the value is not found, or expired.
   """
-  @spec get(t(), Datafile.Entry.key_t()) :: Datafile.Entry.value_t() | nil
+  @spec get(t(), Datafile.Entry.key_t()) :: Datafile.Entry.t() | nil
   def get(store, key) do
     with entry_location <- store.keydir |> Keydir.get(key),
          true <- not is_nil(entry_location),
-         {:ok, value} <-
+         {:ok, entry} <-
            store.file_handles
            |> Map.get(entry_location.file_id)
            |> Datafile.get(entry_location.value_pos, entry_location.value_size) do
-      value
+      entry
     else
       false ->
         nil
 
-      {:error, reason} ->
+      {:error, _} ->
         nil
     end
   end

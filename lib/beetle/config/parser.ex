@@ -34,8 +34,7 @@ defmodule Beetle.Config.Parser do
   defp parse_config(content) do
     content
     |> String.split("\n")
-    |> Enum.reject(&String.starts_with?(&1, "#"))
-    |> Enum.reject(&(String.trim(&1) == ""))
+    |> Enum.reject(fn val -> String.starts_with?(val, "#") or String.trim(val) == "" end)
     |> Enum.reduce(%__MODULE__{}, &parse_line/2)
   end
 

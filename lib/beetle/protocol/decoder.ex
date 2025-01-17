@@ -16,6 +16,7 @@ defmodule Beetle.Protocol.Decoder do
   parts. More documentation can be found
   [here](https://redis.io/docs/latest/develop/reference/protocol-spec/).
   """
+  alias Beetle.Utils
 
   def decode(input) when is_binary(input) do
     case do_decode(input) do
@@ -38,7 +39,7 @@ defmodule Beetle.Protocol.Decoder do
 
   defp do_decode(":" <> rest) do
     with {:ok, {value_str, rest}} <- parse_line(rest),
-         {:ok, value} <- to_integer(value_str) do
+         {:ok, value} <- Utils.parse_integer(value_str) do
       {:ok, {value, rest}}
     else
       {:error, reason} -> {:error, reason}
@@ -172,14 +173,6 @@ defmodule Beetle.Protocol.Decoder do
       decode_map_entries(rest, count - 1, Map.put(acc, key, value))
     else
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @spec to_integer(String.t()) :: {:ok, integer()} | {:error, String.t()}
-  defp to_integer(str) do
-    case Integer.parse(str) do
-      {value, ""} -> {:ok, value}
-      _ -> {:error, "invalid integer string given for conversion"}
     end
   end
 

@@ -1,6 +1,5 @@
 defmodule Beetle.Command do
-  @moduledoc """
-  """
+  @moduledoc false
   alias Beetle.Protocol.{
     Decoder,
     Encoder
@@ -14,8 +13,8 @@ defmodule Beetle.Command do
         }
   defstruct [:command, :args]
 
-  @string_commands ~w(GET SET DEL)
-  @misc_commands ~w(PING)
+  @string_commands ~w(GET SET DEL APPEND GETDEL GETEX GETRANGE GETSET STRLEN SUBSTR)
+  @misc_commands ~w(PING TTL)
 
   @spec parse(String.t()) :: {:ok, t()} | {:error, String.t()}
   def parse(resp_encoded_command) do
@@ -56,5 +55,6 @@ defmodule Beetle.Command do
 end
 
 defmodule Beetle.Command.Behaviour do
+  @moduledoc false
   @callback handle(command :: String.t(), args :: [any()]) :: String.t()
 end
