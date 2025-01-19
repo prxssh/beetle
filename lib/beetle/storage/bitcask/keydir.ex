@@ -106,7 +106,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
     |> Enum.reduce_while(
       {:ok, %{}},
       fn
-        {file_id, entries_stream}, {:ok, keydir} ->
+        {:ok, {file_id, entries_stream}}, {:ok, keydir} ->
           new_keydir =
             entries_stream
             |> Enum.reduce(keydir, fn %{key: key, position: position, size: size}, acc ->

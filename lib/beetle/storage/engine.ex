@@ -10,7 +10,9 @@ defmodule Beetle.Storage.Engine do
   # ==== Client
 
   def start_link(shard_id) do
-    storage_path = Config.storage_directory() |> Path.join("shard_#{shard_id}")
+    # Appending trailing slash because we're using Erlang's
+    # `:fielib.ensure_dir/1` internally.
+    storage_path = Config.storage_directory() |> Path.join("shard_#{shard_id}") |> Kernel.<>("/")
 
     Agent.start_link(
       fn ->

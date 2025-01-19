@@ -3,6 +3,7 @@ defmodule Beetle.Config.Parser do
   Reads & Parses configuration file for the Beetle database
   """
   require Logger
+  import Beetle.Utils
 
   @type t :: %__MODULE__{
           port: pos_integer(),
@@ -11,9 +12,11 @@ defmodule Beetle.Config.Parser do
         }
   defstruct(
     port: 6969,
+    # 5 MB
+    log_file_size: 5 * 1024,
     merge_interval: :timer.minutes(30),
     log_rotation_interval: :timer.minutes(30),
-    storage_directory: "~/.local/share/beetle",
+    storage_directory: Path.expand("~/.local/share/beetle"),
     database_shards: System.schedulers_online()
   )
 
@@ -62,24 +65,40 @@ defmodule Beetle.Config.Parser do
     path = Path.expand(value)
     updated_config = %{config | storage_directory: path}
 
-    with false <- File.exists?(path),
-         :ok <- File.mkdir_p(path) do
-      updated_config
-    else
-      true -> updated_config
-      error -> raise error
+    case :filelib.ensure_dir(path) do
+      :ok -> :ok
+      {:error, reason} -> raise reason
     end
   end
 
-  defp update_config(config, :database_shards, value),
-    do: %{config | database_shards: String.to_integer(value)}
+  defp update_config(config, :database_shards, value) do
+    %{config | database_shards: String.to_integer(value)}
+
+    case parse_integer(value) do
+      {:ok, shards} -> %{config | database_shards: shards}
+      {:error, reason} -> raise reason
+    end
+  end
 
   defp update_config(config, :log_rotation_interval, value) do
-    # TODO
+    case parse_integer(value) do
+      {:ok, interval_sec} -> %{config | log_rotation_interval: :timer.seconds(interval_sec)}
+      {:error, reason} -> raise reason
+    end
+  end
+
+  defp update_config(config, :log_file_size, value) do
+    case parse_integer(value) do
+      {:ok, size_mb} -> %{config | log_file_size: size_mb * 1024}
+      {:error, reason} -> raise reason
+    end
   end
 
   defp merge_interval(config, :merge_interval, value) do
-    # TODO
+    case parse_integer(value) do
+      {:ok, merge_interval_sec} -> %{config | merge_interval: :timer.seconds(merge_interval_sec)}
+      {:error, reason} -> raise reason
+    end
   end
 
   defp update_config(config, _, _), do: config

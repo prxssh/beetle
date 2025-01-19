@@ -50,7 +50,7 @@ defmodule Beetle.Storage.Bitcask do
   @doc "Creates a new Bitcask database instance at the specified path."
   @spec new(Path.t()) :: {:ok, t()} | {:error, any()}
   def new(path) do
-    with :ok <- maybe_create_directory(path),
+    with :ok <- :filelib.ensure_dir(path),
          {:ok, datafiles} <- Datafile.open(path),
          {:ok, keydir} <- Keydir.new(path, datafiles),
          active_datafile_id <- map_size(datafiles) + 1,
@@ -242,7 +242,7 @@ defmodule Beetle.Storage.Bitcask do
       max_concurrency: System.schedulers_online() * 2
     )
     |> Enum.reduce_while({:ok, {merge_datafile, %{}}}, fn
-      entries_stream, {:ok, {datafile, keydir}} ->
+      {:ok, entries_stream}, {:ok, {datafile, keydir}} ->
         entries_stream
         |> process_entry_batch(datafile, keydir)
         |> case do
@@ -285,6 +285,7 @@ defmodule Beetle.Storage.Bitcask do
     end)
   end
 
+  @spec remove_stale_datafiles(Path.t()) :: :ok
   defp remove_stale_datafiles(path) do
     path
     |> Path.join("beetle_*.db")

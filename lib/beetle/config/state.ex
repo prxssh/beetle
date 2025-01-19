@@ -15,13 +15,10 @@ defmodule Beetle.Config do
     Agent.start_link(fn -> parsed_config end, name: @module)
   end
 
-  def storage_directory, do: Agent.get(@module, & &1.storage_directory)
-
   def port, do: Agent.get(@module, & &1.port)
-
-  def database_shards, do: Agent.get(@module, & &1.database_shards)
-
+  def log_file_size, do: Agent.get(@module, & &1.log_file_size)
   def merge_interval, do: Agent.get(@module, & &1.merge_interval)
-
+  def database_shards, do: Agent.get(@module, & &1.database_shards)
+  def storage_directory, do: Agent.get(@module, & &1.storage_directory)
   def log_rotation_interval, do: Agent.get(@module, & &1.log_rotation_interval)
 end
