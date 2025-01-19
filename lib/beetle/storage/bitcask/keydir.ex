@@ -17,16 +17,17 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   Generally, keydir also store timestamp but we don't have any need for it now.
   """
   import Beetle.Utils
-  alias Beetle.Storage.Bitcask
+  alias Beetle.Storage.Bitcask.Datafile
 
-  @type key_t :: String.t()
+  @typedoc "Metadata about stored value in the datafile"
   @type value_t :: %{
           file_id: non_neg_integer(),
           value_pos: non_neg_integer(),
           value_size: non_neg_integer()
         }
 
-  @type t :: %{key_t() => value_t()}
+  @typedoc "Represents the keydir"
+  @type t :: %{Datafile.Entry.key_t() => value_t()}
 
   @hints_file "beetle.hints"
 
@@ -37,8 +38,8 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   @spec new(String.t(), Bitcask.file_handle_t()) :: {:ok, t()} | {:error, any()}
   def new(path, datafiles \\ %{}) do
     with hints_file_path <- path |> Path.join(@hints_file) |> to_charlist(),
-         true <- File.exists?(hints_path),
-         {:ok, binary} <- :file.read_file(hints_path),
+         true <- File.exists?(hints_file_path),
+         {:ok, binary} <- :file.read_file(hints_file_path),
          {:ok, keydir} <- deserialize(binary),
          :ok <- validate_keydir(keydir) do
       {:ok, keydir}
@@ -65,7 +66,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   @spec get(t(), String.t()) :: value_t() | nil
   def get(keydir, key), do: Map.get(keydir, key)
 
-  # ==== Private
+  # === Private
 
   @spec validate_keydir(t()) :: :ok | {:error, :invalid_keydir_format}
   defp validate_keydir(keydir) when is_map(keydir) do
@@ -109,12 +110,12 @@ defmodule Beetle.Storage.Bitcask.Keydir do
           new_keydir =
             entries_stream
             |> Enum.reduce(keydir, fn %{key: key, position: position, size: size}, acc ->
-              Map.put(keydir, key, %{file_id: file_id, value_pos: position, value_size: size})
+              Map.put(acc, key, %{file_id: file_id, value_pos: position, value_size: size})
             end)
 
           {:cont, {:ok, new_keydir}}
 
-        {:exit, reason}, acc ->
+        {:exit, reason}, _acc ->
           {:halt, {:error, {:task_failed, reason}}}
       end
     )

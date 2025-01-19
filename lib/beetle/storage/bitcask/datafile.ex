@@ -147,12 +147,11 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   @spec scan_valid_entries(t()) :: Enumerable.t()
   def scan_valid_entries(datafile) do
     Stream.unfold(0, fn
-      current_offset when current_offset >= max_offset ->
+      current_offset when current_offset >= datafile.offset ->
         nil
 
       current_offset ->
-        datafile.reader
-        |> case read(current_offset) do
+        case Entry.get_metadata(datafile.reader, current_offset) do
           :eof ->
             nil
 
@@ -253,6 +252,8 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   defstruct [:crc, :expiration, :key_size, :value_size, :key, :value]
 
+  def deleted_sentinel, do: @tombstone_value
+
   @doc "Creates a new serialized entry for storage in the datafile"
   @spec new(key_t(), value_t(), non_neg_integer()) :: binary()
   def new(key, value, expiration) do
@@ -320,7 +321,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
          total_size <- @header_size + key_size + value_size,
          {:ok, binary} <- :file.pread(io_device, pos, total_size),
          {:ok, entry} <- decode_entry(binary) do
-      {:ok, %{entry: entry, position: position, size: pos + total_size}}
+      {:ok, %{entry: entry, position: pos, size: pos + total_size}}
     else
       :eof -> :eof
       {:error, reason} -> {:error, reason}
