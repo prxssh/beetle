@@ -50,7 +50,7 @@ defmodule Beetle.Protocol.Decoder do
 
   defp do_decode("$" <> rest) do
     with {:ok, {length_str, rest}} <- parse_line(rest),
-         {:ok, length} <- to_integer(length_str) do
+         {:ok, length} <- Utils.parse_integer(length_str) do
       extract_bulk_string(rest, length)
     else
       {:error, reason} -> {:error, reason}
@@ -61,7 +61,7 @@ defmodule Beetle.Protocol.Decoder do
 
   defp do_decode("*" <> rest) do
     with {:ok, {length_str, remaining}} <- parse_line(rest),
-         {:ok, length} <- to_integer(length_str) do
+         {:ok, length} <- Utils.parse_integer(length_str) do
       decode_array_elements(remaining, length, [])
     else
       {:error, reason} -> {:error, reason}

@@ -132,15 +132,13 @@ defmodule Beetle.Command.Types.String do
   def handle("STRLEN", args) when length(args) != 1, do: error_command_arguments("STRLEN")
 
   def handle("STRLEN", [key]) do
-    len =
-      key
-      |> Storage.Engine.get_value()
-      |> case do
-        nil -> 0
-        value -> String.length(value)
-      end
-
-    Encoder.encode(result)
+    key
+    |> Storage.Engine.get_value()
+    |> case do
+      nil -> 0
+      value -> String.length(value)
+    end
+    |> Encoder.encode()
   end
 
   def handle("DECR", args) do
@@ -149,10 +147,10 @@ defmodule Beetle.Command.Types.String do
   def handle("DECRYBY", args) do
   end
 
-  def handle("INCR" args) do
+  def handle("INCR", args) do
   end
 
-  def handle("INCRBY" args) do
+  def handle("INCRBY", args) do
   end
 
   # ==== Private

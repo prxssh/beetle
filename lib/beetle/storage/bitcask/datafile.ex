@@ -8,34 +8,46 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   immutable and are only used for reads. When the active datafile meets a size
   threshold, it is closed and a new active datafile is created.
   """
-  require Logger
   alias Beetle.Storage.Bitcask.Datafile.Entry
 
-  @type io_device_t :: :file.io_device()
+  @typedoc """
+  Represents a datafile, which is a segment of an append-only log contaiing
+  key-value pairs. 
 
+  A datafile has both read and write handles and tracks its current write
+  offset. Only one datafile is active for writing at a time.
+  """
   @type t :: %__MODULE__{
-          writer: io_device_t(),
-          reader: io_device_t(),
+          writer: :file.io_device(),
+          reader: :file.io_device(),
           offset: non_neg_integer()
         }
-  defstruct [:writer, :reader, :offset]
+
+  @typedoc """
+  Maps datafile IDs to their corresponding datafile structs. Used to track and
+  manage all historical datafiles in the system.
+  """
+  @type file_id_t :: non_neg_integer()
+  @type map_t :: %{file_id_t() => t()}
 
   @default_read_buf_size 128 * 1024
   @default_write_buf_size 128 * 1024
   @default_flush_interval :timer.seconds(2)
+
+  defstruct [:writer, :reader, :offset]
 
   @doc """
   Opens all the datafile(s) at path for reading.
 
   This is usually called at the initialization to load all older datafiles.
   """
-  @spec open_datafiles(Path.t()) :: {:ok, %{pos_integer() => t()}} | {:error, any()}
-  def open_datafiles(path) do
+  @spec open(Path.t()) :: {:ok, map_t()} | {:error, any()}
+  def open(path) do
     path
     |> Path.join("beetle_*.db")
     |> Path.wildcard()
     |> Enum.reduce_while({:ok, %{}}, fn path, {:ok, acc} ->
-      file_id = extract_file_id_from_path(path)
+      file_id = parse_datafile_id(path)
 
       path
       |> new()
@@ -46,12 +58,15 @@ defmodule Beetle.Storage.Bitcask.Datafile do
     end)
   end
 
-  @doc "Opens a datafile at path for reading and writing operations"
+  @doc """
+  Opens a datafile at the given `path` with both read and write access.
+
+  The file is opened in raw mode with buffered I/O for performance.
+  """
   @spec new(charlist() | String.t()) :: {:ok, t()} | {:error, atom()}
   def new(path) do
-    path = to_charlist(path)
-
-    with {:ok, writer} <-
+    with path <- to_charlist(path),
+         {:ok, writer} <-
            :file.open(path, [
              :append,
              :raw,
@@ -60,7 +75,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
            ]),
          {:ok, reader} <-
            :file.open(path, [:read, :raw, :binary, {:read_ahead, @default_read_buf_size}]),
-         {:ok, file_size} <- get_file_size(reader) do
+         {:ok, file_size} <- file_bytes(reader) do
       {:ok, %__MODULE__{writer: writer, reader: reader, offset: file_size}}
     else
       {:error, reason} -> {:error, reason}
@@ -70,7 +85,8 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   @doc "Closes both read and writer handles for a file"
   @spec close(t()) :: :ok | {:error, atom()}
   def close(datafile) do
-    with :ok <- :file.close(datafile.writer),
+    with :ok <- sync(datafile),
+         :ok <- :file.close(datafile.writer),
          :ok <- :file.close(datafile.reader) do
       :ok
     else
@@ -82,18 +98,9 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   @spec sync(t()) :: :ok | {:error, any()}
   def sync(datafile), do: :file.sync(datafile.writer)
 
-  @doc "Retrieves the current size of a file from its handle"
-  @spec get_file_size(io_device_t()) :: {:ok, non_neg_integer()} | {:error, atom()}
-  def get_file_size(io_device) do
-    case :file.read_file_info(io_device) do
-      {:ok, {:file_info, size, _, _, _, _, _, _, _, _, _, _, _, _}} -> {:ok, size}
-      error -> error
-    end
-  end
-
-  @doc "Creates a datafile name using the provided `file_id`"
-  @spec get_name(String.t(), pos_integer()) :: String.t()
-  def get_name(path, file_id), do: Path.join(path, "beetle_#{file_id}.db")
+  @doc "Constructs the full path for a datafile with the given ID"
+  @spec build_path(String.t(), pos_integer()) :: String.t()
+  def build_path(path, file_id), do: Path.join(path, "beetle_#{file_id}.db")
 
   @doc "Fetches the entry from the datafile stored at a particular position."
   @spec get(t(), non_neg_integer(), non_neg_integer()) ::
@@ -108,21 +115,20 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   end
 
   @doc """
-  Writes the key-value pair to the datafile and returns the datafile with the
-  new offset.
+  Writes an entry to the datafile and returns the updated datafile with its new
+  write position.
   """
   @spec write(t(), Entry.key_t(), Entry.value_t(), non_neg_integer()) ::
-          {:ok, {t(), non_neg_integer()}} | {:error, any()}
+          {:ok, t(), non_neg_integer()} | {:error, any()}
   def write(datafile, key, value, expiration) do
     entry = Entry.new(key, value, expiration)
     size = byte_size(entry)
-    position = datafile.offset
 
     datafile.writer
     |> :file.write(entry)
     |> case do
       :ok ->
-        {:ok, {%{datafile | offset: position + size}, size}}
+        {:ok, %{datafile | offset: datafile.offset + size}}
 
       {:error, reason} ->
         {:error, reason}
@@ -135,10 +141,23 @@ defmodule Beetle.Storage.Bitcask.Datafile do
 
   # ==== Private
 
-  defp extract_file_id_from_path(path) do
+  # Extracts the numeric ID from a datafile path (e.g. "beetle_123.db" -> 123).
+  #
+  # Expects the filename to match the pattern "beetle_<number>.db". Raises if the
+  # path doesn't follow the naming convention.
+  defp parse_datafile_id(path) do
     case Regex.run(~r/beetle_(\d+)\.db$/, path) do
       [_, file_id] -> String.to_integer(file_id)
       nil -> raise "invalid datafile naming convention"
+    end
+  end
+
+  # Gets the current file size from an open file handle
+  @spec file_bytes(:file.io_device()) :: {:ok, non_neg_integer()} | {:error, atom()}
+  def file_bytes(io_device) do
+    case :file.read_file_info(io_device) do
+      {:ok, {:file_info, size, _, _, _, _, _, _, _, _, _, _, _, _}} -> {:ok, size}
+      error -> error
     end
   end
 end
@@ -149,15 +168,15 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   Each entry in the datafile has the following format: 
 
-     --------------------------------------------------------------------
-    | crc | expiration | key_size | value_size | key | serialized_value |
-    --------------------------------------------------------------------
+    ----------------------------------------------------------
+    | crc | expiration | key_size | value_size | key | value |
+    ----------------------------------------------------------
 
   - `crc`: CRC32 hash of the entry (expiration + key size + value size + key + value)
   - `expiration`: unsigned integer representing the TTL for the key (0 for no expiration)
   - `key_size`: size of key in bytes
   - `value_size`: size of value in bytes
-  - `serialized_value`: value serialized using `:erlang.term_to_binary/1`
+  - `value`: value serialized using `:erlang.term_to_binary/1`
 
   All integers are stored in big-endian format. The CRC is calculated over all
   the fields that follow it in the entry.
@@ -282,6 +301,5 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   defp expired?(expiration), do: System.system_time(:millisecond) >= expiration
 
   defp deleted?(@tombstone_value), do: true
-
   defp deleted?(_), do: false
 end

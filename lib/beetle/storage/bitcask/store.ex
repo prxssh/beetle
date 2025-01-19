@@ -16,14 +16,11 @@ defmodule Beetle.Storage.Bitcask do
     Datafile
   }
 
-  @type file_id_t :: non_neg_integer()
-  @type file_handle_t :: %{file_id_t() => Datafile.t()}
-
   @type t :: %__MODULE__{
           path: Path.t(),
           keydir: Keydir.t(),
           active_file: file_id_t(),
-          file_handles: file_handle_t()
+          file_handles: Datafile.map_t()
         }
 
   defstruct(
@@ -39,11 +36,11 @@ defmodule Beetle.Storage.Bitcask do
   @spec new(Path.t()) :: {:ok, t()} | {:error, any()}
   def new(path) do
     with :ok <- ensure_directory(path),
-         {:ok, datafile_handles} <- Datafile.open_datafiles(path),
+         {:ok, datafile_handles} <- Datafile.open(path),
          {:ok, keydir} <- Keydir.new(path, datafile_handles),
          active_datafile_id <- map_size(datafile_handles) + 1,
          {:ok, active_datafile_handle} <-
-           path |> Datafile.get_name(active_datafile_id) |> Datafile.new() do
+           path |> Datafile.build_path(active_datafile_id) |> Datafile.new() do
       {:ok,
        %__MODULE__{
          path: path,
@@ -120,14 +117,14 @@ defmodule Beetle.Storage.Bitcask do
     active_datafile
     |> Datafile.write(key, value, expiration)
     |> case do
-      {:ok, {updated_datafile, value_size}} ->
+      {:ok, updated_datafile} ->
         updated_file_handles = Map.put(store.file_handles, store.active_file, updated_datafile)
 
         updated_keydir =
           Keydir.put(store.keydir, key, %{
-            value_size: value_size,
             file_id: store.active_file,
-            value_pos: active_datafile.offset
+            value_pos: active_datafile.offset,
+            value_size: updated_datafile.offset - active_datafile.offset
           })
 
         {:ok, %{store | file_handles: updated_file_handles, keydir: updated_keydir}}
@@ -177,7 +174,7 @@ defmodule Beetle.Storage.Bitcask do
   @spec merge(t()) :: {:ok, t()} | {:error, any()}
   def merge(store) when map_size(store.file_handles) > 1 do
     merge_dir = Path.join(store.path, "merge")
-    new_datafile_path = merge_dir |> Datafile.get_name(0)
+    new_datafile_path = merge_dir |> Datafile.build_path(0)
 
     with :ok <- :file.make_dir(merge_dir),
          {:ok, merged_file} <- Datafile.new(new_datafile_path),
@@ -208,7 +205,7 @@ defmodule Beetle.Storage.Bitcask do
     new_file_id = store.active_file + 1
 
     store.path
-    |> Datafile.get_name(new_file_id)
+    |> Datafile.build_path(new_file_id)
     |> Datafile.new()
     |> case do
       {:ok, new_active_log} ->
@@ -286,7 +283,7 @@ defmodule Beetle.Storage.Bitcask do
   @spec recreate_store(Path.t(), Path.t(), Datafile.t(), Keydir.t()) ::
           {:ok, t()} | {:error, any()}
   defp recreate_store(base_path, curr_path, merged_datafile, merged_keydir) do
-    dest_path = base_path |> Datafile.get_name(0)
+    dest_path = base_path |> Datafile.build_path(0)
 
     with :ok <- Datafile.close(merged_datafile),
          :ok <- :file.rename(curr_path, dest_path),

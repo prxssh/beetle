@@ -74,5 +74,13 @@ defmodule Beetle.Config.Parser do
   defp update_config(config, :database_shards, value),
     do: %{config | database_shards: String.to_integer(value)}
 
+  defp update_config(config, :log_rotation_interval, value) do
+    # TODO
+  end
+
+  defp merge_interval(config, :merge_interval, value) do
+    # TODO
+  end
+
   defp update_config(config, _, _), do: config
 end
