@@ -135,9 +135,38 @@ defmodule Beetle.Storage.Bitcask.Datafile do
     end
   end
 
-  @doc "Dumps all entries in the datafile"
-  @spec dump_all_entries(t()) :: {:ok, [{non_neg_integer(), Entry.t()}]} | {:error, any()}
-  def dump_all_entries(datafile), do: Entry.dump_all(datafile.reader, 0, datafile.offset)
+  @doc """
+  Scans and streams valid entries from a datafile.
+
+  Uses `Stream.unfold/2` to lazily read entries from the datafile starting at
+  offset 0 up to :eof. Each valid entry is returned with its position and size
+  metadata. Deleted and expired entries are reject of the resulting stream.
+
+  Returns an enumerable of type `Entry.metadata_t`.
+  """
+  @spec scan_valid_entries(t()) :: Enumerable.t()
+  def scan_valid_entries(datafile) do
+    Stream.unfold(0, fn
+      current_offset when current_offset >= max_offset ->
+        nil
+
+      current_offset ->
+        datafile.reader
+        |> case read(current_offset) do
+          :eof ->
+            nil
+
+          {:error, _reason} ->
+            nil
+
+          {:ok, entry_with_metadata} ->
+            {entry_with_metadata, current_offset + entry_with_metadata.size}
+        end
+    end)
+    |> Stream.reject(fn %{entry: entry} ->
+      Entry.expired?(entry.expiration) or Entry.deleted?(entry.value)
+    end)
+  end
 
   # ==== Private
 
@@ -186,9 +215,17 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   """
   import Beetle.Utils
 
+  @typedoc "Type of the key. Beetle only allows string keys"
   @type key_t :: String.t()
+
+  @typedoc """
+  Value can be any elixir term, though the interface exposed to the client only
+  allows for these value types -- string, hash, list, bitmap, bloom filter, and
+  set.
+  """
   @type value_t :: term()
 
+  @typedoc "Represents an entry stored in the datafile"
   @type t :: %__MODULE__{
           crc: pos_integer(),
           expiration: non_neg_integer(),
@@ -198,13 +235,27 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
           value: binary()
         }
 
+  @typedoc """
+  Represents an entry's metadata and location in the datafile. It contains:
+  - `entry`: decoded entry struct with the key-value data
+  - `size`: total size of the entry in bytes
+  - `position`: byte offset where entry begins in the datafile
+
+  Used for tracking storage details for entries during operations like
+  compaction or building keydir.
+  """
+  @type metadata_t :: %{
+          entry: t(),
+          size: non_neg_integer(),
+          position: non_neg_integer()
+        }
+
   @header_size 16
   @tombstone_value <<0>>
 
   defstruct [:crc, :expiration, :key_size, :value_size, :key, :value]
 
-  def deleted_sentinel, do: @tombstone_value
-
+  @doc "Creates a new serialized entry for storage in the datafile"
   @spec new(key_t(), value_t(), non_neg_integer()) :: binary()
   def new(key, value, expiration) do
     key_size = byte_size(key)
@@ -218,8 +269,9 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
     <<checksum::32, binary::binary>>
   end
 
+  @doc "Reads and decodes an entry from the datafile at the specified position"
   @spec get(:file.io_device(), non_neg_integer(), non_neg_integer()) ::
-          {:ok, t()} | {:error, :expired | :deleted | any()}
+          {:ok, t()} | {:error, term()}
   def get(io_device, pos, size) do
     with {:ok, binary} <- :file.pread(io_device, pos, size),
          {:ok, entry} <- decode_entry(binary),
@@ -228,51 +280,43 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
       {:ok, entry}
     else
       true -> {:ok, nil}
-      :eof -> {:ok, nil}
+      :eof -> {:error, :eof_reached}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  @spec dump_all(:file.io_device(), non_neg_integer(), non_neg_integer(), list()) ::
-          {:ok, [%{pos: non_neg_integer(), size: non_neg_integer(), entry: t()}]}
-          | {:error, any()}
-  def dump_all(io_device, current_offset, max_offset, acc \\ [])
+  @doc """
+  Reads a raw entry from the datafile from the specified the position.
 
-  def dump_all(_, current_offset, max_offset, acc) when current_offset >= max_offset,
-    do: {:ok, acc}
-
-  def dump_all(io_device, current_offset, max_offset, acc) do
-    io_device
-    |> read(current_offset)
-    |> case do
-      {:ok, entry} ->
-        next_offset = current_offset + @header_size + entry.key_size + entry.value_size
-
-        new_acc =
-          if expired?(entry) or deleted?(entry),
-            do: acc,
-            else: [%{pos: current_offset, size: next_offset, entry: entry} | acc]
-
-        dump_all(io_device, next_offset, max_offset, new_acc)
-
-      error ->
-        error
-    end
-  end
-
-  # === Private
-
-  @spec read(:file.io_device(), non_neg_integer()) :: {:ok, t()} | {:error, any()}
-  defp read(io_device, pos) do
+  This function does two seek operation to fully read the entry. Almost always
+  reach out for `get/2` to read the entries. This function should be used only
+  when you don't have information about the entry size i.e. when builiding
+  keydir from the datafiles.
+  """
+  @spec read_raw(:file.io_device(), non_neg_integer()) ::
+          {:ok, metadata_t()} | :eof | {:error, term()}
+  def read_raw(io_device, pos) do
     with {:ok, <<_::32, _::64, key_size::32, value_size::32>>} <-
            :file.pread(io_device, pos, @header_size),
          total_size <- @header_size + key_size + value_size,
-         {:ok, binary} <- :file.pread(io_device, pos, total_size) do
-      decode_entry(binary)
+         {:ok, binary} <- :file.pread(io_device, pos, total_size),
+         {:ok, entry} <- decode_entry(binary) do
+      {:ok, %{entry: entry, position: position, size: pos + total_size}}
     else
+      :eof -> :eof
       {:error, reason} -> {:error, reason}
     end
   end
+
+  def expired?(%__MODULE__{expiration: 0}), do: false
+
+  def expired?(%__MODULE__{expiration: expiration}),
+    do: System.system_time(:millisecond) >= expiration
+
+  def deleted?(%__MODULE__{value: @tombstone_value}), do: true
+  def deleted?(_), do: false
+
+  # === Private
 
   @spec decode_entry(binary()) ::
           {:ok, t()} | {:error, :entry_invalid_checksum | :entry_invalid_format}
@@ -296,10 +340,4 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
       _ -> {:error, :entry_invalid_format}
     end
   end
-
-  defp expired?(0), do: false
-  defp expired?(expiration), do: System.system_time(:millisecond) >= expiration
-
-  defp deleted?(@tombstone_value), do: true
-  defp deleted?(_), do: false
 end
