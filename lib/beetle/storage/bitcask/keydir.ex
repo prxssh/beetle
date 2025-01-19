@@ -21,7 +21,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
 
   @typedoc "Metadata about stored value in the datafile"
   @type value_t :: %{
-          file_id: non_neg_integer(),
+          file_id: Datafile.file_id_t(),
           value_pos: non_neg_integer(),
           value_size: non_neg_integer()
         }
@@ -80,7 +80,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
 
   defp validate_keydir(_), do: {:error, :invalid_keydir_format}
 
-  @spec valid_entry?({key_t(), value_t()}) :: boolean()
+  @spec valid_entry?({Datafile.Entry.key_t(), value_t()}) :: boolean()
   defp valid_entry?({key, value}) when is_binary(key) and is_map(value) do
     required_keys = [:file_id, :value_pos, :value_size]
 

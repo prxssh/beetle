@@ -9,17 +9,34 @@ defmodule Beetle.Storage.Bitcask do
   and an in-memory index holding the keys mapped to a bunch of information
   necessary for point lookups.
   """
-  require Logger
+  import Beetle.Utils
 
   alias Beetle.Storage.Bitcask.{
     Keydir,
     Datafile
   }
 
+  @typedoc """
+  Represents bitcask database struct.
+
+  It contains the state required to manage a single bitcask instance. The
+  fields are:
+  - `:path`: path to the database directory where all datafiles are stored.
+    Must be valid directory path that the process has permission to read and
+    write to.
+  - `:keydir`: in-memory key directory mapping keys to their locations in the
+    datafiles. Maintains the latest value position for each key for faster
+    lookups.
+  - `:active_file`: ID of the currently active datafile where new writes are
+    appended. When a file reaches its size limit, a new active file is created
+    with an incremented ID.
+  - `:file_handles`: a map of file IDs to their corresponding file handles.
+    Maintains open file descriptors for all datafiles.
+  """
   @type t :: %__MODULE__{
           path: Path.t(),
           keydir: Keydir.t(),
-          active_file: file_id_t(),
+          active_file: Datafile.file_id_t(),
           file_handles: Datafile.map_t()
         }
 
@@ -30,41 +47,31 @@ defmodule Beetle.Storage.Bitcask do
     file_handles: nil
   )
 
-  @doc """
-  Creates a new Bitcask instance at the storage directory.
-  """
+  @doc "Creates a new Bitcask database instance at the specified path."
   @spec new(Path.t()) :: {:ok, t()} | {:error, any()}
   def new(path) do
-    with :ok <- ensure_directory(path),
-         {:ok, datafile_handles} <- Datafile.open(path),
-         {:ok, keydir} <- Keydir.new(path, datafile_handles),
-         active_datafile_id <- map_size(datafile_handles) + 1,
-         {:ok, active_datafile_handle} <-
+    with :ok <- maybe_create_directory(path),
+         {:ok, datafiles} <- Datafile.open(path),
+         {:ok, keydir} <- Keydir.new(path, datafiles),
+         active_datafile_id <- map_size(datafiles) + 1,
+         {:ok, active_datafile} <-
            path |> Datafile.build_path(active_datafile_id) |> Datafile.new() do
       {:ok,
        %__MODULE__{
          path: path,
          keydir: keydir,
          active_file: active_datafile_id,
-         file_handles: Map.put(datafile_handles, active_datafile_id, active_datafile_handle)
+         file_handles: Map.put(datafiles, active_datafile_id, active_datafile)
        }}
     else
       {:error, reason} -> {:error, reason}
     end
   end
 
-  @doc """
-  Closes the store after we're done with it.
-
-  It does the following tasks:
-  - Persists keydir to disk
-  - Sync any pending writes to disk
-  - Close all file handles
-  """
+  @doc "Closes the store after we're done with it."
   @spec close(t()) :: :ok | {:error, any()}
   def close(store) do
     with :ok <- Keydir.persist(store.keydir, store.path),
-         :ok <- store.file_handles |> Map.get(store.active_file) |> Datafile.sync(),
          :ok <-
            store.file_handles
            |> Enum.reduce_while(:ok, fn {_, file_handle}, acc ->
@@ -81,35 +88,27 @@ defmodule Beetle.Storage.Bitcask do
     end
   end
 
-  @doc """
-  Retrieve a value by key from the store. 
-
-  Returns `nil` if the value is not found, or expired.
-  """
+  @doc "Retrieves the value for a key from the store."
   @spec get(t(), Datafile.Entry.key_t()) :: Datafile.Entry.t() | nil
   def get(store, key) do
-    with entry_location <- store.keydir |> Keydir.get(key),
-         true <- not is_nil(entry_location),
-         {:ok, entry} <-
-           store.file_handles
-           |> Map.get(entry_location.file_id)
-           |> Datafile.get(entry_location.value_pos, entry_location.value_size) do
+    with entry_location <- Keydir.get(store.keydir, key),
+         false <- is_nil(entry_location),
+         datafile <- Map.get(store.file_handles, entry_location.file_id),
+         {:ok, entry} <- Datafile.get(datafile, entry_location.value_size) do
       entry
     else
-      false ->
-        nil
-
-      {:error, _} ->
-        nil
+      true -> nil
+      {:error, _reason} -> nil
     end
   end
 
   @doc """
-  Write a key-value pair in the store with additional options.
+  Writes a key-value pair in the database with expiration. 
 
-  Currently, the only supported additonal option is `expiration`.
+  A value of 0 denotes no expiration. Otherwise, expiration is a UNIX timestamp
+  in milliseconds.
   """
-  @spec put(Bitcask.t(), DataFile.Entry.key_t(), Datafile.Entry.value_t(), non_neg_integer()) ::
+  @spec put(t(), DataFile.Entry.key_t(), Datafile.Entry.value_t(), non_neg_integer()) ::
           {:ok, t()} | {:error, any()}
   def put(store, key, value, expiration) do
     active_datafile = Map.get(store.file_handles, store.active_file)
@@ -129,8 +128,8 @@ defmodule Beetle.Storage.Bitcask do
 
         {:ok, %{store | file_handles: updated_file_handles, keydir: updated_keydir}}
 
-      error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -141,10 +140,9 @@ defmodule Beetle.Storage.Bitcask do
   tombstone value. The deleted keys are cleaned up during merging operation. It
   returns a non-negative integer specifying the count of keys deleted.
   """
-  @spec delete(t(), [Datafile.Entry.key_t()] | Datafile.Entry.key_t()) :: {t(), non_neg_integer()}
+  @spec delete(t(), [Datafile.Entry.key_t()]) :: {t(), non_neg_integer()}
   def delete(store, keys) do
     keys
-    |> List.wrap()
     |> Enum.reduce({store, 0}, fn key, {store_acc, deleted_keys_count} ->
       tombstone_value = Datafile.Entry.deleted_sentinel()
 
@@ -154,38 +152,40 @@ defmodule Beetle.Storage.Bitcask do
         {:ok, updated_store} ->
           {updated_store, deleted_keys_count + 1}
 
-        {:error, reason} ->
-          Logger.notice("#{__MODULE__} failed to delete key #{key}: #{inspect(reason)}")
+        {:error, _reason} ->
           {store_acc, deleted_keys_count}
       end
     end)
   end
 
-  @doc "List all the keys in the store"
-  @spec keys(t()) :: [Datafile.Entry.key_t()] | {:error, any()}
-  def keys(store), do: Map.keys(store.keydir)
-
   @doc """
-  Merges several datafiles within the store into a more compact form.
+  Performs compaction on the store.
 
-  This function also takes care of cleaning up the expired and deleted entries
-  from the store.
+  The merge operation in Bitcask is a compaction process that reclaims disk
+  space by removing stale or redundant data entries. During normal operations,
+  Bitcask appends all writes to the active datfile, including updates and
+  deletions. This append-only design means that the older version of values and
+  deleted entries still occupy disk space until a merge is performed.
   """
-  @spec merge(t()) :: {:ok, t()} | {:error, any()}
-  def merge(store) when map_size(store.file_handles) > 1 do
-    merge_dir = Path.join(store.path, "merge")
-    new_datafile_path = merge_dir |> Datafile.build_path(0)
+  @spec merge(t()) :: {:ok, t()} | {:error, term()}
+  def merge(store) when map_size(store.file_handles) > 2 do
+    merge_dir = store.path |> Path.join("merge") |> to_charlist()
+    merge_datafile_path = Datafile.build_path(merge_dir, 0)
 
     with :ok <- :file.make_dir(merge_dir),
-         {:ok, merged_file} <- Datafile.new(new_datafile_path),
-         {:ok, {merged_datafile, merged_keydir}} <-
-           populate_new_entries(store.file_handles, merged_file),
-         {:ok, merged_store} <-
-           recreate_store(store.path, new_datafile_path, merged_datafile, merged_keydir),
-         :ok <- close(store),
-         :ok <- Keydir.persist(merged_keydir, store.path),
-         :ok <- :file.del_dir_r(merge_dir) do
-      {:ok, merged_store}
+         {:ok, merge_datafile} <- Datafile.new(merge_datafile_path),
+         {:ok, merge_keydir} <- populate_valid_entries(store.file_handles, merge_datafile),
+         :ok <- remove_stale_datafiles(store.path),
+         :ok <- :file.rename(merge_dir, Datafile.build_path(store.path, 0)),
+         :ok <- :file.del_dir_r(merge_dir),
+         :ok <- Keydir.persist(merge_keydir, store.path),
+         updated_store <- %{
+           store
+           | file_handles: %{0 => merge_datafile},
+             active_file: 0,
+             keydir: merge_keydir
+         } do
+      {:ok, updated_store}
     else
       {:error, reason} ->
         :file.del_dir_r(merge_dir)
@@ -196,9 +196,14 @@ defmodule Beetle.Storage.Bitcask do
   def merge(store), do: {:ok, store}
 
   @doc """
-  Creates a new log file (datafile) for the store. 
+  Log rotation, in Bitcask, is the process of creating new active datafile when
+  certain conditions are met. 
 
-  The previous log file will no longer be used for writing, just for reading.
+  Beetle makes use of file size to kickoff log rotation i.e. if the active
+  datafile size exceeds certain threshold, new active datafile will be created.
+  Unlike traditional log rotation that might delete old files, Bitcask's
+  rotation creates new files while preserving old ones, mainting an append only
+  storage model. The older files are usually cleaned during compaction process.
   """
   @spec log_rotation(t()) :: {:ok, t()} | {:error, any()}
   def log_rotation(store) do
@@ -208,8 +213,8 @@ defmodule Beetle.Storage.Bitcask do
     |> Datafile.build_path(new_file_id)
     |> Datafile.new()
     |> case do
-      {:ok, new_active_log} ->
-        updated_file_handles = Map.put(store.file_handles, new_file_id, new_active_log)
+      {:ok, new_datafile} ->
+        updated_file_handles = Map.put(store.file_handles, new_file_id, new_datafile)
         {:ok, %{store | active_file: new_file_id, file_handles: updated_file_handles}}
 
       {:error, reason} ->
@@ -220,94 +225,70 @@ defmodule Beetle.Storage.Bitcask do
   @doc "Force any writes to sync to disk."
   @spec sync(t()) :: :ok
   def sync(store) do
-    store
-    |> Map.get(:file_handles, store.active_file)
+    store.file_handles
+    |> Map.get(store.active_file)
     |> Datafile.sync()
   end
 
   # === Private
 
-  # Write all the active entries (unexpired, and undeleted) to the new datafile
-  # and keydir.
-  @spec populate_new_entries(file_handle_t(), Datafile.t()) ::
-          {:ok, {Datafile.t(), Keydir.t()}} | {:error, any()}
-  defp populate_new_entries(older_logs, merged_log) do
-    with {:ok, entries} <- collect_entries(older_logs),
-         {:ok, {final_file, final_keydir}} <- write_entries(entries, merged_log) do
-      {:ok, {final_file, final_keydir}}
-    else
+  @spec populate_valid_entries(Datafile.map_t(), Datafile.t()) ::
+          {:ok, Keydir.t()} | {:error, term()}
+  defp populate_valid_entries(datafiles, merge_datafile) do
+    datafiles
+    |> Task.async_stream(fn {_, datafile} -> Datafile.scan_valid_entries(datafile) end,
+      ordered: false,
+      timeout: :timer.seconds(15),
+      max_concurrency: System.schedulers_online() * 2
+    )
+    |> Enum.reduce_while({:ok, {merge_datafile, %{}}}, fn
+      entries_stream, {:ok, {datafile, keydir}} ->
+        entries_stream
+        |> process_entry_batch(datafile, keydir)
+        |> case do
+          {:ok, {updated_datafile, updated_keydir}} ->
+            {:cont, {:ok, {updated_datafile, updated_keydir}}}
+
+          error ->
+            {:halt, error}
+        end
+
+      {:exit, reason}, _ ->
+        {:halt, {:error, {:scan_failed, reason}}}
+    end)
+    |> case do
+      {:ok, {_, keydir}} -> {:ok, keydir}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  # Aggregates all the active entries from the older datafiles.
-  @spec collect_entries(file_handle_t()) :: {:ok, [Datafile.Entry.t()]} | {:error, any()}
-  defp collect_entries(older_logs) do
-    older_logs
-    |> Enum.reduce_while({:ok, []}, fn {_, datafile}, {:ok, acc} ->
-      datafile.reader
-      |> Datafile.Entry.dump_all(0, datafile.offset)
-      |> case do
-        {:ok, entries} -> {:cont, {:ok, acc ++ Enum.map(entries, fn {_, entry} -> entry end)}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  # Writes the active entries to the new datafile and keydir.
-  @spec write_entries([Datafile.Entry.t()], Datafile.t()) ::
-          {:ok, {Datafile.t(), Keydir.t()}} | {:error, any()}
-  defp write_entries(entries, merged_datafile) do
-    entries
-    |> Enum.reduce_while({:ok, {merged_datafile, %{}}}, fn entry, {:ok, {datafile, keydir}} ->
+  @spec process_entry_batch(Enumerable.t(), Datafile.t(), Keydir.t()) ::
+          {:ok, {Datafile.t(), Keydir.t()}} | {:error, term()}
+  defp process_entry_batch(entries, datafile, keydir) do
+    Enum.reduce_while(entries, {:ok, {datafile, keydir}}, fn entry, {:ok, {datafile, keydir}} ->
       datafile
       |> Datafile.write(entry.key, entry.value, entry.expiration)
       |> case do
         {:ok, updated_datafile} ->
-          # TODO
           updated_keydir =
             Keydir.put(keydir, entry.key, %{
               file_id: 0,
-              value_pos: 0,
-              value_size: 0
+              value_size: entry.size,
+              value_pos: updated_datafile.offset - datafile.offset
             })
 
           {:cont, {:ok, {updated_datafile, updated_keydir}}}
 
-        {:error, reason} ->
-          {:halt, {:error, reason}}
+        error ->
+          {:halt, error}
       end
     end)
   end
 
-  @spec recreate_store(Path.t(), Path.t(), Datafile.t(), Keydir.t()) ::
-          {:ok, t()} | {:error, any()}
-  defp recreate_store(base_path, curr_path, merged_datafile, merged_keydir) do
-    dest_path = base_path |> Datafile.build_path(0)
-
-    with :ok <- Datafile.close(merged_datafile),
-         :ok <- :file.rename(curr_path, dest_path),
-         {:ok, datafile} <- Datafile.new(dest_path) do
-      {:ok,
-       %__MODULE__{
-         active_file: 0,
-         path: base_path,
-         keydir: merged_keydir,
-         file_handles: %{0 => datafile}
-       }}
-    else
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @spec ensure_directory(Path.t()) :: :ok | {:error, any()}
-  defp ensure_directory(path) do
-    with false <- File.exists?(path),
-         :ok <- :file.make_dir(path) do
-      :ok
-    else
-      true -> :ok
-      {:error, reason} -> {:error, reason}
-    end
+  defp remove_stale_datafiles(path) do
+    path
+    |> Path.join("beetle_*.db")
+    |> Path.wildcard()
+    |> Enum.each(&File.rm/1)
   end
 end
