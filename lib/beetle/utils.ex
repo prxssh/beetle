@@ -14,4 +14,18 @@ defmodule Beetle.Utils do
       _ -> {:error, "value is not an integer or out of range"}
     end
   end
+
+  @doc """
+  Creates the directory at `path` if it doesn't already exists.
+  """
+  @spec maybe_create_directory(Path.t()) :: :ok | {:error, any()}
+  def maybe_create_directory(path) do
+    with path <- to_charlist(path),
+         {:ok, _} <- :file.read_file_info(path) do
+      :ok
+    else
+      {:error, :enoent} -> :file.make_dir(path)
+      {:error, reason} -> {:error, reason}
+    end
+  end
 end

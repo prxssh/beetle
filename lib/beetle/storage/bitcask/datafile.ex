@@ -159,13 +159,11 @@ defmodule Beetle.Storage.Bitcask.Datafile do
           {:error, _reason} ->
             nil
 
-          {:ok, entry_with_metadata} ->
-            {entry_with_metadata, current_offset + entry_with_metadata.size}
+          {:ok, entry_metadata} ->
+            {entry_metadata, current_offset + entry_metadata.size}
         end
     end)
-    |> Stream.reject(fn %{entry: entry} ->
-      Entry.expired?(entry.expiration) or Entry.deleted?(entry.value)
-    end)
+    |> Stream.reject(&is_nil(&1.key))
   end
 
   # ==== Private
@@ -237,7 +235,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   @typedoc """
   Represents an entry's metadata and location in the datafile. It contains:
-  - `entry`: decoded entry struct with the key-value data
+  - `key`: key
   - `size`: total size of the entry in bytes
   - `position`: byte offset where entry begins in the datafile
 
@@ -245,7 +243,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   compaction or building keydir.
   """
   @type metadata_t :: %{
-          entry: t(),
+          key: key_t() | nil,
           size: non_neg_integer(),
           position: non_neg_integer()
         }
@@ -286,16 +284,37 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   end
 
   @doc """
-  Reads a raw entry from the datafile from the specified the position.
-
-  This function does two seek operation to fully read the entry. Almost always
-  reach out for `get/2` to read the entries. This function should be used only
-  when you don't have information about the entry size i.e. when builiding
-  keydir from the datafiles.
+  Retrieves the metadata about the entry at the specified position.
   """
-  @spec read_raw(:file.io_device(), non_neg_integer()) ::
+  @spec get_metadata(:file.io_device(), non_neg_integer()) ::
           {:ok, metadata_t()} | :eof | {:error, term()}
-  def read_raw(io_device, pos) do
+  def get_metadata(io_device, pos) do
+    io_device
+    |> read_raw(pos)
+    |> case do
+      {:ok, %{entry: entry, position: position, size: size}} ->
+        key = if expired?(entry.expiration) or deleted?(entry.value), do: nil, else: entry.key
+        {:ok, %{key: key, position: position, size: size}}
+
+      :eof ->
+        :eof
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # === Private
+
+  # Reads a raw entry from the datafile from the specified the position.
+  #
+  # This function does two seek operation to fully read the entry. Almost always
+  # reach out for `get/2` to read the entries. This function should be used only
+  # when you don't have information about the entry size i.e. when builiding
+  # keydir from the datafiles.
+  @spec read_raw(:file.io_device(), non_neg_integer()) ::
+          {:ok, map()} | :eof | {:error, term()}
+  defp read_raw(io_device, pos) do
     with {:ok, <<_::32, _::64, key_size::32, value_size::32>>} <-
            :file.pread(io_device, pos, @header_size),
          total_size <- @header_size + key_size + value_size,
@@ -307,16 +326,6 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
       {:error, reason} -> {:error, reason}
     end
   end
-
-  def expired?(%__MODULE__{expiration: 0}), do: false
-
-  def expired?(%__MODULE__{expiration: expiration}),
-    do: System.system_time(:millisecond) >= expiration
-
-  def deleted?(%__MODULE__{value: @tombstone_value}), do: true
-  def deleted?(_), do: false
-
-  # === Private
 
   @spec decode_entry(binary()) ::
           {:ok, t()} | {:error, :entry_invalid_checksum | :entry_invalid_format}
@@ -340,4 +349,10 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
       _ -> {:error, :entry_invalid_format}
     end
   end
+
+  defp expired?(0), do: false
+  defp expired?(expiration), do: System.system_time(:millisecond) >= expiration
+
+  defp deleted?(@tombstone_value), do: true
+  defp deleted?(_), do: false
 end
