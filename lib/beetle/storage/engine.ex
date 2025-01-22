@@ -1,34 +1,32 @@
 defmodule Beetle.Storage.Engine do
-  @moduledoc false
-  use Agent
+  @moduledoc """
+  Engine to manages persistent data across multiple shards.
 
-  require Logger
+  This module implements a sharded key-value store using Bitcask as the
+  underlying storage engine. It provides a simple interface for CRUD operations
+  while handling data distribution across shards transparently.
+
+  Data is automatically distributed across multiple shards using consistent
+  hashing (`:erlang.phash2/2`). The number of shards is configurable through
+  the `Beetle.Config.database_shards/0`. Each shard maintains its own Bitcask
+  store in a separate directory under the configured storage path.
+  """
+  use GenServer
 
   alias Beetle.Config
   alias Beetle.Storage.Bitcask
 
   # ==== Client
 
-  def start_link(shard_id) do
-    # Appending trailing slash because we're using Erlang's
-    # `:fielib.ensure_dir/1` internally.
-    storage_path = Config.storage_directory() |> Path.join("shard_#{shard_id}") |> Kernel.<>("/")
-
-    Agent.start_link(
-      fn ->
-        {:ok, store} = Bitcask.new(storage_path)
-        store
-      end,
-      name: via_tuple(shard_id)
-    )
-  end
+  def start_link(shard_id),
+    do: GenServer.start_link(__MODULE__, shard_id, name: via_tuple(shard_id))
 
   @spec get(String.t()) :: Datafile.Entry.t() | nil
   def get(key) do
     key
     |> get_shard()
     |> via_tuple()
-    |> Agent.get(fn store -> store |> Bitcask.get(key) end)
+    |> GenServer.call({:get, key})
   end
 
   @spec get_value(String.t()) :: nil | Datafile.Entry.value_t()
@@ -46,10 +44,7 @@ defmodule Beetle.Storage.Engine do
     key
     |> get_shard()
     |> via_tuple()
-    |> Agent.update(fn store ->
-      {:ok, updated_store} = Bitcask.put(store, key, value, expiration)
-      updated_store
-    end)
+    |> GenServer.cast({:put, key, value, expiration})
   end
 
   @spec drop([String.t()]) :: non_neg_integer()
@@ -57,13 +52,39 @@ defmodule Beetle.Storage.Engine do
     keys
     |> List.wrap()
     |> Enum.group_by(&get_shard/1)
-    |> Enum.map(fn {shard_id, shard_keys} ->
-      Agent.get_and_update(via_tuple(shard_id), fn store ->
-        {updated_store, count_deleted} = Bitcask.delete(store, shard_keys)
-        {count_deleted, updated_store}
-      end)
+    |> Enum.reduce(0, fn {shard_id, keys}, acc ->
+      count = GenServer.call(via_tuple(shard_id), {:drop, keys})
+      acc + count
     end)
-    |> Enum.sum()
+  end
+
+  # ==== Server
+
+  @impl true
+  def init(shard_id) do
+    path = Config.storage_directory() |> Path.join("shard_#{shard_id}") |> Kernel.<>("/")
+
+    path
+    |> Bitcask.new()
+    |> case do
+      {:ok, store} -> {:ok, store}
+      error -> {:halt, error}
+    end
+  end
+
+  @impl true
+  def handle_call({:get, key}, _, store), do: {:reply, Bitcask.get(store, key), store}
+
+  @impl true
+  def handle_call({:drop, keys}, _, store) do
+    {updated_store, count_deleted} = Bitcask.delete(store, keys)
+    {:reply, count_deleted, updated_store}
+  end
+
+  @impl true
+  def handle_cast({:put, key, value, expiration}, store) do
+    {:ok, updated_store} = Bitcask.put(store, key, value, expiration)
+    {:noreply, updated_store}
   end
 
   # ==== Private
