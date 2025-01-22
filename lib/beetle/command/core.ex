@@ -19,31 +19,40 @@ defmodule Beetle.Command do
   @list_commands ~w(LINDEX LINSERT LLEN LMOVE LMPOP LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX)
   @hash_commands ~w(HDEL HEXISTS HEXPIRE HEXPIREAT HEXPIRETIME HGET HGETALL HINCRBY HKEYS HLEN HMMGET HMSET HPERSIST HPEXPIRE HPEXPIREAT HPEXPIRETIME, HPTTL, HRANDIFIELD, HSCAN, HSET, HSTRLEN, HTTL, HVALS)
 
-  @spec parse(String.t()) :: {:ok, t()} | {:error, String.t()}
+  @spec parse(String.t()) :: {:ok, [t()]} | {:error, String.t()}
   def parse(resp_encoded_command) do
     resp_encoded_command
     |> Decoder.decode()
     |> case do
       {:ok, decoded} ->
         {:ok,
-         %__MODULE__{
-           command: decoded |> List.first() |> String.upcase(),
-           args: List.delete_at(decoded, 0)
-         }}
+         Enum.map(decoded, fn [cmd | args] ->
+           %__MODULE__{
+             args: args,
+             command: String.upcase(cmd)
+           }
+         end)}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  @spec execute(t()) :: String.t()
-  def execute(%{command: command, args: args}) do
-    command
-    |> get_command_module()
-    |> case do
-      {:ok, module} -> module.handle(command, args)
-      error -> Encoder.encode(error)
-    end
+  @spec execute([t()]) :: String.t()
+  def execute(commands) do
+    commands
+    |> Enum.reduce([], fn %__MODULE__{command: command, args: args}, acc ->
+      res =
+        command
+        |> get_command_module()
+        |> case do
+          {:ok, module} -> module.handle(command, args)
+          error -> error
+        end
+
+      [res | acc]
+    end)
+    |> Encoder.encode()
   end
 
   # ==== Private

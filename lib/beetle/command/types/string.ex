@@ -33,8 +33,8 @@ defmodule Beetle.Command.Types.String do
     |> List.first()
     |> Storage.Engine.get()
     |> case do
-      nil -> Encoder.encode(nil)
-      %{value: value} -> Encoder.encode(value)
+      nil -> nil
+      %{value: value} -> value
     end
   end
 
@@ -46,17 +46,13 @@ defmodule Beetle.Command.Types.String do
          {:ok, options} <- args |> Enum.slice(2..-1//1) |> parse_set_options() do
       execute_set(key, value, options)
     else
-      error -> Encoder.encode(error)
+      error -> error
     end
   end
 
   def handle("DEL", args) when length(args) < 1, do: error_command_arguments("DEL")
 
-  def handle("DEL", args) do
-    args
-    |> Storage.Engine.drop()
-    |> Encoder.encode()
-  end
+  def handle("DEL", args), do: Storage.Engine.drop(args)
 
   def handle("APPEND", args) when length(args) != 2, do: error_command_arguments("APPEND")
 
@@ -75,7 +71,6 @@ defmodule Beetle.Command.Types.String do
         Storage.Engine.put(key, new_value, 0)
         byte_size(new_value)
     end
-    |> Encoder.encode()
   end
 
   def handle("GETDEL", args) when length(args) != 1, do: error_command_arguments("GETDEL")
@@ -85,7 +80,8 @@ defmodule Beetle.Command.Types.String do
     value = Storage.Engine.get(key)
 
     if is_nil(value), do: nil, else: Storage.Engine.drop(key)
-    Encoder.encode(value)
+
+    value
   end
 
   def handle("GETEX", args) when length(args) < 2 or length(args) > 3,
@@ -116,16 +112,16 @@ defmodule Beetle.Command.Types.String do
       |> Storage.Engine.get()
       |> case do
         nil ->
-          Encoder.encode("")
+          ""
 
         %{value: value} when is_binary(value) ->
-          value |> slice_string(start, stop) |> Encoder.encode()
+          value |> slice_string(start, stop)
 
         _ ->
-          Encoder.encode({:error, "operation against a  key holding the wrong kind of value"})
+          {:error, "operation against a  key holding the wrong kind of value"}
       end
     else
-      error -> Encoder.encode(error)
+      error -> error
     end
   end
 
@@ -138,7 +134,6 @@ defmodule Beetle.Command.Types.String do
       nil -> 0
       value -> String.length(value)
     end
-    |> Encoder.encode()
   end
 
   def handle("DECR", args) do
@@ -155,13 +150,11 @@ defmodule Beetle.Command.Types.String do
 
   # ==== Private
 
-  @spec error_command_arguments(String.t()) :: String.t()
-  defp error_command_arguments(command) do
-    reason = "ERR invalid number of arguments for '#{command}' command"
-    Encoder.encode({:error, reason})
-  end
+  @spec error_command_arguments(String.t()) :: {:error, String.t()}
+  defp error_command_arguments(command),
+    do: {:error, "ERR invalid number of arguments for '#{command}' command"}
 
-  defp error_syntax, do: Encoder.encode({:error, "syntax error"})
+  defp error_syntax, do: {:error, "syntax error"}
 
   @spec parse_set_options([String.t()], set_opts_t()) ::
           {:ok, set_opts_t()} | {:error, String.t()}

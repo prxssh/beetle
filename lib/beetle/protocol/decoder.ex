@@ -18,14 +18,19 @@ defmodule Beetle.Protocol.Decoder do
   """
   alias Beetle.Utils
 
-  def decode(input) when is_binary(input) do
+  @spec decode(String.t(), [[String.t()]]) :: {:ok, [[String.t()]]} | {:error, String.t()}
+  def decode(input, acc \\ [])
+
+  def decode(<<>>, acc), do: {:ok, Enum.reverse(acc)}
+
+  def decode(input, acc) when is_binary(input) do
     case do_decode(input) do
-      {:ok, {decoded, _}} -> {:ok, decoded}
-      {:error, reason} -> {:error, reason}
+      {:ok, {decoded, rest}} -> decode(rest, [decoded | acc])
+      error -> error
     end
   end
 
-  def decode(_), do: {:error, "input must be a binary"}
+  def decode(_, _), do: {:error, "input must be a binary"}
 
   # === Simple String
 
