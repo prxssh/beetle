@@ -1,28 +1,25 @@
 defmodule Beetle.Command do
-  @moduledoc false
-  alias Beetle.Protocol.{
-    Decoder,
-    Encoder
-  }
+  @moduledoc """
+  Module reponsible for parsing and executing commands.
+  """
 
-  alias Beetle.Command.Types
-
+  @typedoc """
+  Represents a Beetle command. The fields are:
+  - `command`: Uppercase command name (for e.g. GET, SET, PING, etc)
+  - `args`: List of command arguments
+  """
   @type t :: %__MODULE__{
           command: String.t(),
-          args: [any()]
+          args: [String.t()]
         }
+
   defstruct [:command, :args]
 
-  @misc_commands ~w(PING TTL)
-  @bitmap_commands ~w(BITCOUNT, BITFIELD, BITFIELD_RO, BITOP, BITPOS, GETBIT, SETBIT)
-  @string_commands ~w(GET SET DEL APPEND GETDEL GETEX GETRANGE STRLEN DECR DECRBY INCR INCRBY)
-  @list_commands ~w(LINDEX LINSERT LLEN LMOVE LMPOP LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX)
-  @hash_commands ~w(HDEL HEXISTS HEXPIRE HEXPIREAT HEXPIRETIME HGET HGETALL HINCRBY HKEYS HLEN HMMGET HMSET HPERSIST HPEXPIRE HPEXPIREAT HPEXPIRETIME, HPTTL, HRANDIFIELD, HSCAN, HSET, HSTRLEN, HTTL, HVALS)
-
+  @doc "Parses RESP-encoded command string into Beetle Command struct"
   @spec parse(String.t()) :: {:ok, [t()]} | {:error, String.t()}
   def parse(resp_encoded_command) do
     resp_encoded_command
-    |> Decoder.decode()
+    |> Beetle.Protocol.Decoder.decode()
     |> case do
       {:ok, decoded} ->
         {:ok,
@@ -38,6 +35,13 @@ defmodule Beetle.Command do
     end
   end
 
+  @doc """
+  Executes a list of commands concurrently and returns combined RESP-encoded
+  results.
+
+  Commands are executed in parallel using `Task.async_stream/3` with - 2x
+  available CPU schedulers and in ordere to preserve the sequence.
+  """
   @spec execute([t()]) :: String.t()
   def execute(commands) do
     commands
@@ -53,27 +57,11 @@ defmodule Beetle.Command do
   @spec execute_single(t()) :: String.t()
   defp execute_single(%__MODULE__{command: command, args: args}) do
     command
-    |> get_command_module()
+    |> Beetle.Command.Mapping.get()
     |> case do
       {:ok, module} -> module.handle(command, args)
       error -> error
     end
-    |> Encoder.encode()
+    |> Beetle.Protocol.Encoder.encode()
   end
-
-  defp get_command_module(command) do
-    cond do
-      command in @misc_commands -> {:ok, Types.Misc}
-      command in @string_commands -> {:ok, Types.String}
-      command in @list_commands -> {:ok, Types.List}
-      command in @hash_commands -> {:ok, Types.Hash}
-      command in @bitmap_commands -> {:ok, Types.Bitmap}
-      true -> {:error, "ERR unknown command '#{command}'"}
-    end
-  end
-end
-
-defmodule Beetle.Command.Behaviour do
-  @moduledoc false
-  @callback handle(command :: String.t(), args :: [any()]) :: String.t()
 end
