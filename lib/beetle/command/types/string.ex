@@ -249,8 +249,8 @@ defmodule Beetle.Command.Types.String do
       end
 
     if opts.get,
-      do: current_entry |> Map.get(:value) |> Encoder.encode(),
-      else: Encoder.encode(return_value)
+      do: Map.get(current_entry, :value),
+      else: return_value
   end
 
   defp parse_getex_options([]), do: {:ok, {nil, []}}

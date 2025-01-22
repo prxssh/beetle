@@ -41,21 +41,25 @@ defmodule Beetle.Command do
   @spec execute([t()]) :: String.t()
   def execute(commands) do
     commands
-    |> Enum.reduce([], fn %__MODULE__{command: command, args: args}, acc ->
-      res =
-        command
-        |> get_command_module()
-        |> case do
-          {:ok, module} -> module.handle(command, args)
-          error -> error
-        end
-
-      [res | acc]
-    end)
-    |> Encoder.encode()
+    |> Task.async_stream(&execute_single/1,
+      max_concurrency: System.schedulers_online() * 2,
+      ordered: true
+    )
+    |> Enum.map_join("", fn {:ok, result} -> result end)
   end
 
   # ==== Private
+
+  @spec execute_single(t()) :: String.t()
+  defp execute_single(%__MODULE__{command: command, args: args}) do
+    command
+    |> get_command_module()
+    |> case do
+      {:ok, module} -> module.handle(command, args)
+      error -> error
+    end
+    |> Encoder.encode()
+  end
 
   defp get_command_module(command) do
     cond do
