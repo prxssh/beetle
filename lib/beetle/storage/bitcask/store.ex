@@ -9,8 +9,6 @@ defmodule Beetle.Storage.Bitcask do
   and an in-memory index holding the keys mapped to a bunch of information
   necessary for point lookups.
   """
-  import Beetle.Utils
-
   alias Beetle.Storage.Bitcask.{
     Keydir,
     Datafile
@@ -94,7 +92,8 @@ defmodule Beetle.Storage.Bitcask do
     with entry_location <- Keydir.get(store.keydir, key),
          false <- is_nil(entry_location),
          datafile <- Map.get(store.file_handles, entry_location.file_id),
-         {:ok, entry} <- Datafile.get(datafile, entry_location.value_size) do
+         {:ok, entry} <-
+           Datafile.get(datafile, entry_location.value_pos, entry_location.value_size) do
       entry
     else
       true -> nil
