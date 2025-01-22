@@ -96,7 +96,7 @@ defmodule Beetle.Storage.Engine do
   end
 
   @impl true
-  def handle_info(:log_rotation, _, store) do
+  def handle_info(:log_rotation, store) do
     store
     |> Bitcask.log_rotation()
     |> case do
@@ -110,7 +110,7 @@ defmodule Beetle.Storage.Engine do
   end
 
   @impl true
-  def handle_info(:compaction, _, store) do
+  def handle_info(:compaction, store) do
     store
     |> Bitcask.merge()
     |> case do
