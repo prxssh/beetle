@@ -13,6 +13,8 @@ defmodule Beetle.Storage.Engine do
   """
   use GenServer
 
+  require Logger
+
   alias Beetle.Config
   alias Beetle.Storage.Bitcask
 
@@ -67,8 +69,14 @@ defmodule Beetle.Storage.Engine do
     path
     |> Bitcask.new()
     |> case do
-      {:ok, store} -> {:ok, store}
-      error -> {:halt, error}
+      {:ok, store} ->
+        schedule_compaction()
+        schedule_log_rotation()
+
+        {:ok, store}
+
+      error ->
+        {:stop, error}
     end
   end
 
@@ -87,6 +95,34 @@ defmodule Beetle.Storage.Engine do
     {:noreply, updated_store}
   end
 
+  @impl true
+  def handle_info(:log_rotation, _, store) do
+    store
+    |> Bitcask.log_rotation()
+    |> case do
+      {:ok, updated_store} ->
+        {:noreply, updated_store}
+
+      {:error, reason} ->
+        Logger.notice("#{__MODULE__}: log rotation failed, reason: #{inspect(reason)}")
+        {:noreply, store}
+    end
+  end
+
+  @impl true
+  def handle_info(:compaction, _, store) do
+    store
+    |> Bitcask.merge()
+    |> case do
+      {:ok, updated_store} ->
+        {:noreply, updated_store}
+
+      {:error, reason} ->
+        Logger.notice("#{__MODULE__}: compaction failed, reason: #{inspect(reason)}")
+        {:noreply, store}
+    end
+  end
+
   # ==== Private
 
   defp via_tuple(shard_id), do: {:via, Registry, {Beetle.ShardRegistry, shard_id}}
@@ -94,5 +130,15 @@ defmodule Beetle.Storage.Engine do
   defp get_shard(key) do
     count_shards = Config.database_shards()
     :erlang.phash2(key, count_shards)
+  end
+
+  defp schedule_log_rotation do
+    interval_ms = Config.log_rotation_interval()
+    Process.send_after(self(), :log_rotation, interval_ms)
+  end
+
+  defp schedule_compaction do
+    interval_ms = Config.merge_interval()
+    Process.send_after(self(), :compaction, interval_ms)
   end
 end
