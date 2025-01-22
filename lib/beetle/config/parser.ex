@@ -8,7 +8,10 @@ defmodule Beetle.Config.Parser do
   @type t :: %__MODULE__{
           port: pos_integer(),
           storage_directory: String.t(),
-          database_shards: pos_integer()
+          database_shards: pos_integer(),
+          log_file_size: pos_integer(),
+          merge_interval: pos_integer(),
+          log_rotation_interval: pos_integer()
         }
   defstruct(
     port: 6969,
@@ -66,14 +69,12 @@ defmodule Beetle.Config.Parser do
     updated_config = %{config | storage_directory: path}
 
     case :filelib.ensure_dir(path) do
-      :ok -> :ok
+      :ok -> updated_config
       {:error, reason} -> raise reason
     end
   end
 
   defp update_config(config, :database_shards, value) do
-    %{config | database_shards: String.to_integer(value)}
-
     case parse_integer(value) do
       {:ok, shards} -> %{config | database_shards: shards}
       {:error, reason} -> raise reason
