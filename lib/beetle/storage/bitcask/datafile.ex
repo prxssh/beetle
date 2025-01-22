@@ -210,6 +210,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   Values can be any Erlang/Elixir term (lists, maps, sets, tuples, etc) as they
   are automatically serialized before storage and deserialized upon retrieval.
   """
+  require Logger
   import Beetle.Utils
 
   @typedoc "Type of the key. Beetle only allows string keys"
@@ -252,7 +253,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
           expiration: non_neg_integer()
         }
 
-  @header_size 16
+  @header_size 20
   @tombstone_value <<0>>
 
   defstruct [:crc, :expiration, :key_size, :value_size, :key, :value]
@@ -289,15 +290,17 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
     end
   end
 
-  # Reads a raw entry from the datafile from the specified the position.
-  #
-  # This function does two seek operation to fully read the entry. Almost always
-  # reach out for `get/2` to read the entries. This function should be used only
-  # when you don't have information about the entry size i.e. when builiding
-  # keydir from the datafiles.
+  @doc """
+  Reads a raw entry from the datafile from the specified the position.
+
+  This function does two seek operation to fully read the entry. Almost always
+  reach out for `get/2` to read the entries. This function should be used only
+  when you don't have information about the entry size i.e. when builiding
+  keydir from the datafiles.
+  """
   @spec read_raw(:file.io_device(), non_neg_integer()) ::
           {:ok, metadata_t()} | :eof | {:error, term()}
-  defp read_raw(io_device, pos) do
+  def read_raw(io_device, pos) do
     with {:ok, <<_::32, _::64, key_size::32, value_size::32>>} <-
            :file.pread(io_device, pos, @header_size),
          total_size <- @header_size + key_size + value_size,
@@ -308,7 +311,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
          key: entry.key,
          value: entry.value,
          position: pos,
-         size: pos + total_size,
+         size: total_size,
          expiration: entry.expiration,
          is_stale: expired?(entry.expiration) or deleted?(entry.value)
        }}
