@@ -42,11 +42,10 @@ defmodule Beetle.Server.Client do
 
   alias Beetle.Command
   alias Beetle.Protocol.Encoder
+  alias Beetle.Server.TransactionManager
 
   defmodule State do
-    defstruct socket: nil,
-              command_queue: [],
-              in_transaction: false
+    defstruct socket: nil, transaction_manager: TransactionManager.new()
   end
 
   # === Client
@@ -66,6 +65,8 @@ defmodule Beetle.Server.Client do
       |> process_commands(state)
 
     dbg(updated_state)
+    dbg(response)
+
     :gen_tcp.send(state.socket, response)
 
     {:noreply, updated_state}
@@ -75,61 +76,40 @@ defmodule Beetle.Server.Client do
   def handle_info({:tcp_closed, _socket}, state), do: {:stop, :normal, state}
 
   @impl true
-  def handle_info({:tcp_error, _socket, reason}, state) do
-    Logger.error("TCP error: #{inspect(reason)}")
-    {:stop, reason, state}
-  end
+  def handle_info({:tcp_error, _socket, reason}, state), do: {:stop, reason, state}
 
   # === Private
 
   defp process_commands({:ok, commands}, state) when length(commands) == 1 do
+    dbg(state)
+
     commands
     |> List.first()
     |> case do
       %Command{command: "MULTI"} ->
-        transaction_start(state)
+        TransactionManager.begin(state.transaction_manager)
 
       %Command{command: "DISCARD"} ->
-        transaction_discard(state)
+        TransactionManager.discard(state.transaction_manager)
 
       %Command{command: "EXEC"} ->
-        transaction_execute(state)
+        TransactionManager.execute(state.transaction_manager)
 
       command ->
-        if state.in_transaction,
-          do: transaction_enqueue_command(command, state),
-          else: {Command.execute(command), state}
+        if state.transaction_manager.active,
+          do: TransactionManager.enqueue(state.transaction_manager, command),
+          else: {:ok, {Command.execute([command]), state.transaction_manager}}
+    end
+    |> case do
+      {:ok, {result, updated_transaction_manager}} ->
+        {result, %{state | transaction_manager: updated_transaction_manager}}
+
+      error ->
+        {Encoder.encode(error), state}
     end
   end
 
-  defp process_commands({:ok, commands}, _), do: Command.execute(commands)
+  defp process_commands({:ok, commands}, state), do: {Command.execute(commands), state}
 
-  defp process_commands(error, _), do: Encoder.encode(error)
-
-  defp transaction_start(state) do
-    if state.in_transaction do
-      response = Encoder.encode({:error, "ERR mutli calls can not be nested"})
-      {response, %State{socket: state.socket}}
-    else
-      {Encoder.encode("OK"), %State{state | in_transaction: true}}
-    end
-  end
-
-  defp transaction_discard(state),
-    do: {Encoder.encode("OK"), %State{socket: state.socket}}
-
-  defp transaction_execute(state) do
-    if state.in_transaction do
-      commands = Enum.reverse(state.command_queue)
-      result = Command.execute_transaction(commands)
-
-      {result, %State{socket: state.socket}}
-    else
-      {Encoder.encode({:error, "ERR EXEC without MULTI"}), %State{socket: state.socket}}
-    end
-  end
-
-  defp transaction_enqueue_command(command, state) do
-    {Encoder.encode("QUEUED"), %State{state | command_queue: [command | state.command_queue]}}
-  end
+  defp process_commands(error, state), do: {Encoder.encode(error), state}
 end
