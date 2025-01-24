@@ -6,21 +6,21 @@ defmodule Beetle.Command.Mapping do
 
   @commands %{
     # Miscellaneous
-    PING: Types.Misc,
-    TTL: Types.Misc,
+    "PING" => Types.Misc,
+    "TTL" => Types.Misc,
     # String
-    GET: Types.String,
-    SET: Types.String,
-    DEL: Types.String,
-    APPEND: Types.String,
-    GETDEL: Types.String,
-    GETEX: Types.String,
-    GETRANGE: Types.String,
-    STRLEN: Types.String,
-    DECR: Types.String,
-    DECRBY: Types.String,
-    INCR: Types.String,
-    INCRYBY: Types.String
+    "GET" => Types.String,
+    "SET" => Types.String,
+    "DEL" => Types.String,
+    "APPEND" => Types.String,
+    "GETDEL" => Types.String,
+    "GETEX" => Types.String,
+    "GETRANGE" => Types.String,
+    "STRLEN" => Types.String,
+    "DECR" => Types.String,
+    "DECRBY" => Types.String,
+    "INCR" => Types.String,
+    "INCRYBY" => Types.String
   }
 
   @doc "Gets the module responsible for handling a specific command"

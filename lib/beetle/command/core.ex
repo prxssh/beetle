@@ -43,25 +43,38 @@ defmodule Beetle.Command do
   available CPU schedulers and in ordere to preserve the sequence.
   """
   @spec execute([t()]) :: String.t()
-  def execute(commands) do
+  def execute(commands) when is_list(commands) do
     commands
-    |> Task.async_stream(&execute_single/1,
+    |> Task.async_stream(&execute/1,
       max_concurrency: System.schedulers_online() * 2,
       ordered: true
     )
     |> Enum.map_join("", fn {:ok, result} -> result end)
   end
 
-  # ==== Private
-
-  @spec execute_single(t()) :: String.t()
-  defp execute_single(%__MODULE__{command: command, args: args}) do
+  def execute(%__MODULE__{command: command, args: args}) do
     command
     |> Beetle.Command.Mapping.get()
     |> case do
       {:ok, module} -> module.handle(command, args)
       error -> error
     end
+    |> Beetle.Protocol.Encoder.encode()
+  end
+
+  def execute_transaction(commands) do
+    commands
+    |> Enum.reduce([], fn %{command: command, args: args}, acc ->
+      result =
+        command
+        |> Beetle.Command.Mapping.get()
+        |> case do
+          {:ok, module} -> module.handle(command, args)
+          error -> error
+        end
+
+      [result | acc]
+    end)
     |> Beetle.Protocol.Encoder.encode()
   end
 end
