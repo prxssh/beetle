@@ -64,9 +64,6 @@ defmodule Beetle.Server.Client do
       |> Command.parse()
       |> process_commands(state)
 
-    dbg(updated_state)
-    dbg(response)
-
     :gen_tcp.send(state.socket, response)
 
     {:noreply, updated_state}
@@ -81,8 +78,6 @@ defmodule Beetle.Server.Client do
   # === Private
 
   defp process_commands({:ok, commands}, state) when length(commands) == 1 do
-    dbg(state)
-
     commands
     |> List.first()
     |> case do
@@ -105,7 +100,7 @@ defmodule Beetle.Server.Client do
         {result, %{state | transaction_manager: updated_transaction_manager}}
 
       error ->
-        {Encoder.encode(error), state}
+        {Encoder.encode(error), %{state | transaction_manager: TransactionManager.new()}}
     end
   end
 
