@@ -8,8 +8,8 @@ defmodule Beetle.Application do
     path = maybe_extract_path(System.argv())
 
     children = [
-      {Beetle.Server, []},
       {Beetle.Config, path},
+      {Beetle.Server, []},
       {Beetle.Storage.Supervisor, []},
       {Beetle.Server.ClientSupervisor, []}
     ]

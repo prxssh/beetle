@@ -47,14 +47,14 @@ defmodule Beetle.Server do
 
   # === Client 
 
-  def start_link(opts \\ []),
-    do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(_),
+    do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   # === Server
 
   @impl true
-  def init(opts) do
-    port = Keyword.get(opts, :port, 6969)
+  def init(_) do
+    port = Beetle.Config.port()
 
     case :gen_tcp.listen(port, [:binary, active: false, reuseaddr: true, ip: {0, 0, 0, 0}]) do
       {:ok, listen_socket} ->

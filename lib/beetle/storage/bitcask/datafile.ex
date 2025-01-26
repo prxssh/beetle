@@ -180,7 +180,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
 
   # Gets the current file size from an open file handle
   @spec file_bytes(:file.io_device()) :: {:ok, non_neg_integer()} | {:error, atom()}
-  def file_bytes(io_device) do
+  defp file_bytes(io_device) do
     case :file.read_file_info(io_device) do
       {:ok, {:file_info, size, _, _, _, _, _, _, _, _, _, _, _, _}} -> {:ok, size}
       error -> error
