@@ -37,10 +37,52 @@ The high-level ambitious plan for the project, in order:
 |  1  | Bitcask Implementation                                    |   ✅   |
 |  2  | Redis Serialization Protocol                              |   ✅   |
 |  3  | Basic commands like GET, SET, DEL                         |   ✅   |
-|  4  | Support 100K+ read/write operations per second            |   ✅   |
-|  5  | Data types - strings, lists, hashes, bitmaps, bitfields   |   ❌   |
-|  6  | Make it distributed using Raft Consensus Algorithm        |   ❌   |
-|  N  | Fancy features (to be expanded upon later)                |   ❌   |
+|  4  | Redis Transactions & Command Pipelining                   |   ✅   |
+|  5  | Support database sharding                                 |   ✅   |
+|  6  | Support strings datatype                                  |   ✅   |
+|  7  | Support list datatype                                     |   ❌   |
+|  8  | Support hash datatype                                     |   ❌   |
+|  9  | Support bloom filter datatype                             |   ❌   |
+|  10 | Support bitmap datatype                                   |   ❌   |
+|  11 | Support pubsub                                            |   ❌   |
+|  12 | Test cases for the modules                                |   ❌   |
+|  13 | Make it distributed using Raft consensus algorithm        |   ❌   |
+
+## Get started
+
+### Setting up Beetle with Docker
+
+The easiest way to get started with Beetle is using [Docker](https://www.docker.com/) by running the following command:
+
+
+```bash
+docker build -t beetle .
+
+docker run -p 6969:6969 --name beetle beetle
+```
+
+The above commands will build the docker image and start Beetle server running
+locally on the port `6969` and you can connect to it using 
+[Redis CLI](https://redis.io/docs/latest/develop/tools/cli/)
+
+### Running the application locally
+
+To run Beetle locally either for development or just playing around, you need
+to have the [Elixir](https://elixir-lang.org/) installed.
+
+```bash
+git clone https://github.com/prxssh/beetle
+cd beetle
+iex -S mix run
+```
+
+This will start the Beetle server on port `6969`. 
+
+Additonally you can also run Beetle by providing a configuration file:
+
+```bash
+iex -S mix run -- config example/beetle.conf
+```
 
 ## Benchmarks 
 
