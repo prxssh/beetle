@@ -48,6 +48,8 @@ The high-level ambitious plan for the project, in order:
 |  12 | Test cases for the modules                                |   ❌   |
 |  13 | Make it distributed using Raft consensus algorithm        |   ❌   |
 
+The available commands can be found [here](lib/beetle/command/mapping.ex).
+
 ## Get started
 
 ### Setting up Beetle with Docker
