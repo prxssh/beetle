@@ -25,3 +25,5 @@ beetle-*.tar
 .lexical/
 
 .DS_Store
+
+example/db
