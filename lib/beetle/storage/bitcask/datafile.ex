@@ -264,7 +264,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   @spec new(key_t(), value_t(), non_neg_integer()) :: binary()
   def new(key, value, expiration) do
     key_size = byte_size(key)
-    serialized_value = serialize(value)
+    serialized_value = parse_value(value)
     value_size = byte_size(serialized_value)
 
     entry = [<<expiration::64, key_size::32, value_size::32>>, key, serialized_value]
@@ -351,4 +351,14 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   defp deleted?(@tombstone_value), do: true
   defp deleted?(_), do: false
+
+  defp parse_value(value) when is_bitstring(value) do
+    value
+    |> parse_integer()
+    |> case do
+      {:ok, integer} -> integer
+      _ -> value
+    end
+    |> serialize()
+  end
 end
