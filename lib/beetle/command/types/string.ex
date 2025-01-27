@@ -145,7 +145,7 @@ defmodule Beetle.Command.Types.String do
   def handle("DECRYBY", args) do
     {key, value} = {List.first(args), List.last(args)}
 
-    with {:ok, decr} <- to_integer(value),
+    with {:ok, decr} <- Utils.to_integer(value),
          current_value <- Storage.Engine.get(key),
          decremented_value <- calculate_new_value(current_value, decr),
          :ok <- Storage.Engine.put(key, value, decremented_value) do
