@@ -361,4 +361,6 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
     end
     |> serialize()
   end
+
+  defp parse_value(value), do: serialize(value)
 end

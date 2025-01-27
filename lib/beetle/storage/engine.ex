@@ -42,7 +42,7 @@ defmodule Beetle.Storage.Engine do
   end
 
   @spec put(String.t(), term(), non_neg_integer()) :: :ok
-  def put(key, value, expiration) do
+  def put(key, value, expiration \\ 0) do
     key
     |> get_shard()
     |> via_tuple()

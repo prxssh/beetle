@@ -9,6 +9,8 @@ defmodule Beetle.Storage.Bitcask do
   and an in-memory index holding the keys mapped to a bunch of information
   necessary for point lookups.
   """
+  require Logger
+
   alias Beetle.Storage.Bitcask.{
     Keydir,
     Datafile

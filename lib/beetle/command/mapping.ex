@@ -20,7 +20,7 @@ defmodule Beetle.Command.Mapping do
     "DECR" => Types.String,
     "DECRBY" => Types.String,
     "INCR" => Types.String,
-    "INCRYBY" => Types.String
+    "INCRBY" => Types.String
   }
 
   @doc "Gets the module responsible for handling a specific command"

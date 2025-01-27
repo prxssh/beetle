@@ -138,27 +138,38 @@ defmodule Beetle.Command.Types.String do
 
   def handle("DECR", args) when length(args) != 1, do: error_command_arguments("DECR")
 
-  def handle("DECR", [key | _]), do: handle("DECRBY", [key, 1])
+  def handle("DECR", [key | _]), do: handle("DECRBY", [key, "1"])
 
   def handle("DECRYBY", args) when length(args) != 2, do: error_command_arguments("DECRBY")
 
-  def handle("DECRYBY", args) do
+  def handle("DECRBY", args) do
     {key, value} = {List.first(args), List.last(args)}
 
-    with {:ok, decr} <- Utils.to_integer(value),
-         current_value <- Storage.Engine.get(key),
-         decremented_value <- calculate_new_value(current_value, decr),
-         :ok <- Storage.Engine.put(key, value, decremented_value) do
+    with {:ok, decr} <- Utils.parse_integer(value),
+         current_value <- Storage.Engine.get_value(key),
+         decremented_value <- calculate_new_value(current_value, -decr),
+         :ok <- Storage.Engine.put(key, decremented_value) do
       decremented_value
     else
       {:error, _} -> {:error, "value is not integer or out of range"}
     end
   end
 
-  def handle("INCR", args) do
-  end
+  def handle("INCR", args) when length(args) != 1, do: error_command_arguments("INCR")
+
+  def handle("INCR", [key | _]), do: handle("INCRBY", [key, "1"])
 
   def handle("INCRBY", args) do
+    {key, value} = {List.first(args), List.last(args)}
+
+    with {:ok, incr} <- Utils.parse_integer(value),
+         current_value <- Storage.Engine.get_value(key),
+         incremented_value <- calculate_new_value(current_value, incr),
+         :ok <- Storage.Engine.put(key, incremented_value) do
+      incremented_value
+    else
+      {:error, _} -> {:error, "value is not integer or out of range"}
+    end
   end
 
   # ==== Private
@@ -286,6 +297,6 @@ defmodule Beetle.Command.Types.String do
     if start > stop, do: "", else: String.slice(str, start, stop - start + 1)
   end
 
-  defp calculate_new_value(nil, x), do: -x
-  defp calculate_new_value(val, x), do: val - x
+  defp calculate_new_value(nil, x), do: x
+  defp calculate_new_value(val, x), do: val + x
 end
