@@ -136,10 +136,23 @@ defmodule Beetle.Command.Types.String do
     end
   end
 
-  def handle("DECR", args) do
-  end
+  def handle("DECR", args) when length(args) != 1, do: error_command_arguments("DECR")
+
+  def handle("DECR", [key | _]), do: handle("DECRBY", [key, 1])
+
+  def handle("DECRYBY", args) when length(args) != 2, do: error_command_arguments("DECRBY")
 
   def handle("DECRYBY", args) do
+    {key, value} = {List.first(args), List.last(args)}
+
+    with {:ok, decr} <- to_integer(value),
+         current_value <- Storage.Engine.get(key),
+         decremented_value <- calculate_new_value(current_value, decr),
+         :ok <- Storage.Engine.put(key, value, decremented_value) do
+      decremented_value
+    else
+      {:error, _} -> {:error, "value is not integer or out of range"}
+    end
   end
 
   def handle("INCR", args) do
@@ -272,4 +285,7 @@ defmodule Beetle.Command.Types.String do
 
     if start > stop, do: "", else: String.slice(str, start, stop - start + 1)
   end
+
+  defp calculate_new_value(nil, x), do: -x
+  defp calculate_new_value(val, x), do: val - x
 end
