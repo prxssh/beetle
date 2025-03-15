@@ -20,6 +20,7 @@ defmodule Beetle.MixProject do
 
   defp deps do
     [
+      {:mock, "~> 0.3.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
