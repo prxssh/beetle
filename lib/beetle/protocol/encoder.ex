@@ -27,23 +27,18 @@ defmodule Beetle.Protocol.Encoder do
   @resp_nil "_\r\n"
   @resp_boolean_true "#t\r\n"
   @resp_boolean_false "#f\r\n"
-  @crlf "\r\n"
 
   def encode(nil), do: @resp_nil
   def encode(:ok), do: @resp_ok
   def encode(true), do: @resp_boolean_true
   def encode(false), do: @resp_boolean_false
 
-  def encode({:error, reason}), do: "-" <> "#{reason}" <> "\r\n"
+  def encode({:error, reason}), do: "-#{reason}\r\n"
 
+  def encode(data) when is_float(data), do: ",#{data}\r\n"
+  def encode(data) when is_integer(data), do: ":#{data}\r\n"
   def encode(data) when is_atom(data), do: encode(Atom.to_string(data))
-
-  def encode(data) when is_binary(data),
-    do: "$" <> "#{String.length(data)}" <> "\r\n" <> data <> "\r\n"
-
-  def encode(data) when is_integer(data), do: ":" <> "#{data}" <> "\r\n"
-
-  def encode(data) when is_float(data), do: "," <> "#{data}" <> "\r\n"
+  def encode(data) when is_binary(data), do: "$#{String.length(data)}\r\n#{data}\r\n"
 
   def encode(data) when is_map(data) do
     resp_encoded_map =
@@ -54,12 +49,12 @@ defmodule Beetle.Protocol.Encoder do
         encoded_key <> encoded_val
       end)
 
-    "%" <> "#{map_size(data)}" <> "\r\n" <> resp_encoded_map
+    "%#{map_size(data)}\r\n#{resp_encoded_map}"
   end
 
   def encode(data) when is_list(data) do
-    resp_encoded_list = data |> Enum.map_join(&encode/1)
-    "*" <> "#{length(data)}" <> "\r\n" <> resp_encoded_list
+    resp_encoded_list = Enum.map_join(data, &encode/1)
+    "*#{length(data)}\r\n#{resp_encoded_list}"
   end
 
   def encode(data), do: raise("Unsupported data format: #{inspect(data)}")
