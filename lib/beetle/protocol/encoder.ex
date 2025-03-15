@@ -2,17 +2,37 @@ defmodule Beetle.Protocol.Encoder do
   @moduledoc """
   Implements an encoder for the Redis Serialization Protocol (RESP).
 
-  RESP is a protocol that serializes different data types including strings,
-  integers, arrays, errors, maps, sets, etc. This module provides encoding
-  functionality for converting Elixir data types into RESP format.
+  RESP is a protocol that serializes different data types into a standardized
+  format used by Redis for client-server communication. This module provides
+  functions to convert Elixir data types into their corresponding RESP format.
+
+  ## Supported data types
+
+  * `nil` - Encoded as Null type "_\r\n"
+  * `:ok` - Encoded as Simple String "+OK\r\n"
+  * `true` - Encoded as Boolean "#t\r\n"
+  * `false` - Encoded as Boolean "#f\r\n"
+  * `{:error, reason}` - Encoded as Error "-reason\r\n"
+  * `atom` - Converted to string and encoded as Bulk String
+  * `binary` - Encoded as Bulk String "$length\r\n[data]\r\n"
+  * `integer` - Encoded as Integer ":value\r\n"
+  * `float` - Encoded as Double/Float ",value\r\n" 
+  * `map` - Encoded as Map "%size\r\n[key-value pairs]"
+  * `list` - Encoded as Array "*length\r\n[elements]"
+
+  The encoder will raise an exception when attempting to encode unsupported
+  data types.
   """
-  def encode(nil), do: "_\r\n"
+  @resp_ok "+OK\r\n"
+  @resp_nil "_\r\n"
+  @resp_boolean_true "#t\r\n"
+  @resp_boolean_false "#f\r\n"
+  @crlf "\r\n"
 
-  def encode(:ok), do: "+OK\r\n"
-
-  def encode(true), do: "#t\r\n"
-
-  def encode(false), do: "#f\r\n"
+  def encode(nil), do: @resp_nil
+  def encode(:ok), do: @resp_ok
+  def encode(true), do: @resp_boolean_true
+  def encode(false), do: @resp_boolean_false
 
   def encode({:error, reason}), do: "-" <> "#{reason}" <> "\r\n"
 
