@@ -1,20 +1,55 @@
 defmodule Beetle.Protocol.Decoder do
   @moduledoc """
-  To communicate with the Beetle server, clients use a protocol called Redis
-  Serialization Protocol (RESP). This module implement a decoder for it.
-
-  RESP can serialize different data types including integers, strings, and
-  arrays. It also features an error-specific type. A client sends a request to
-  the Beetle server as an array of bulk strings. The array's content are the
-  command and its arguments that the server should execute. The server's reply
-  type is command specific.
-
-  RESP is binary-safe and users prefixed length to transfer bulk data so it
-  doesn't require processing bulk data transferred from one process to another.
-
-  The \r\n (CRLF) is the protocol's terminator, which always separates its
-  parts. More documentation can be found
-  [here](https://redis.io/docs/latest/develop/reference/protocol-spec/).
+  Implements a decoder for the Redis Serialization Protocol (RESP) used by
+  Beetle server.
+  
+  RESP is a binary-safe protocol that serializes different data types using a
+  prefixed length approach. Each message is terminated with CRLF (`\\r\\n`).
+  The protocol is designed for efficient communication between clients and the
+  server.
+  
+  ## Supported Data Types
+  
+  * Simple String - Prefixed with `+` (e.g., `+OK\r\n`)
+  * Simple Error - Prefixed with `-` (e.g., `-ERR unknown command\r\n`)
+  * Integer - Prefixed with `:` (e.g., `:1000\r\n`)
+  * Bulk String - Prefixed with `$` followed by string length (e.g., `$5\r\nhello\r\n`)
+  * Array - Prefixed with `*` followed by array length (e.g., `*2\r\n$3\r\nGET\r\n$4\r\nkeys\r\n`)
+  * Null - Represented as `_\r\n`
+  * Boolean - Prefixed with `#` (`#t\r\n` for true, `#f\r\n` for false)
+  * Double/Float - Prefixed with `,` (e.g., `,3.14159\r\n`)
+  * Big Number - Prefixed with `(`
+  * Bulk Error - Prefixed with `!`
+  * Map - Prefixed with `%` followed by number of entries
+  * Set - Prefixed with `~` followed by array format
+  
+  ## Usage
+  
+  The main function is `decode/1` (or `decode/2` with accumulator), which takes
+  a binary RESP payload and returns either `{:ok, decoded_values}` or `{:error,
+  reason}`.
+  
+  ```elixir
+  # Decode a simple RESP string
+  {:ok, values} = Beetle.Protocol.Decoder.decode("+OK\r\n")
+  ```
+  
+  # Decode a complex RESP array containing different data types
+  {:ok, values} = Beetle.Protocol.Decoder.decode("*3\r\n:1\r\n$5\r\nhello\r\n#t\r\n")
+  
+  # Handle potential errors
+  case Beetle.Protocol.Decoder.decode(input) do
+    {:ok, decoded} -> # Process decoded data
+    {:error, reason} -> # Handle error
+  end
+  ```
+  
+  The decoder uses a recursive approach to process nested data types such as
+  arrays and maps. Special values like infinity and NaN are properly handled in
+  floating-point numbers.
+  
+  For more details on the RESP specification, see the 
+  [Redis protocol specification](https://redis.io/docs/latest/develop/reference/protocol-spec/).
   """
   alias Beetle.Utils
 
