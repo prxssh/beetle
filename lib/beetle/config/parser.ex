@@ -103,7 +103,7 @@ defmodule Beetle.Config.Parser do
     end
   end
 
-  defp merge_interval(config, :merge_interval, value) do
+  defp update_config(config, :merge_interval, value) do
     case parse_time(value) do
       {:ok, time} -> %__MODULE__{config | merge_interval: time}
       {:error, reason} -> raise reason
