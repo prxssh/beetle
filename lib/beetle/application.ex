@@ -20,5 +20,6 @@ defmodule Beetle.Application do
   end
 
   defp maybe_extract_path([]), do: nil
+  defp maybe_extract_path(["test"]), do: nil
   defp maybe_extract_path([_path, location]), do: Path.expand(location)
 end
