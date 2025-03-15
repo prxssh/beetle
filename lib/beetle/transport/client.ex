@@ -1,4 +1,4 @@
-defmodule Beetle.Server.ClientSupervisor do
+defmodule Beetle.Transport.ClientSupervisor do
   @moduledoc """
   Dynamically supervises TCP client connection processes.
 
@@ -18,7 +18,7 @@ defmodule Beetle.Server.ClientSupervisor do
   """
   @spec start_client(:gen_tcp.socket()) :: {:ok, pid()} | {:error, any()}
   def start_client(socket) do
-    child_spec = {Beetle.Server.Client, socket}
+    child_spec = {Beetle.Transport.Client, socket}
     DynamicSupervisor.start_child(__MODULE__, child_spec)
   end
 
@@ -28,7 +28,7 @@ defmodule Beetle.Server.ClientSupervisor do
   def init(_), do: DynamicSupervisor.init(strategy: :one_for_one)
 end
 
-defmodule Beetle.Server.Client do
+defmodule Beetle.Transport.Client do
   @moduledoc """
   Handles individual TCP client connections.
 
