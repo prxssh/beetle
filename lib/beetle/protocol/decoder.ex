@@ -124,7 +124,7 @@ defmodule Beetle.Protocol.Decoder do
 
   defp do_decode(<<"#t\r\n"::binary, rest::binary>>), do: {:ok, {true, rest}}
   defp do_decode(<<"#f\r\n"::binary, rest::binary>>), do: {:ok, {false, rest}}
-  defp do_decode(_), do: {:error, "invalid type for boolean conversion"}
+  defp do_decode(<<"#"::binary, _::binary>>), do: {:error, "invalid type for boolean conversion"}
 
   # === Double
 
@@ -210,6 +210,21 @@ defmodule Beetle.Protocol.Decoder do
       decode_map_entries(rest, count - 1, Map.put(acc, key, value))
     else
       error -> error
+    end
+  end
+
+  @spec to_float(String.t()) ::
+          {:ok, float() | :infinity | :negative_infinity | :nan} | {:error, String.t()}
+  defp to_float("inf"), do: {:ok, :infinity}
+
+  defp to_float("-inf"), do: {:ok, :negative_infinity}
+
+  defp to_float("nan"), do: {:ok, :nan}
+
+  defp to_float(str) do
+    case Float.parse(str) do
+      {value, ""} -> {:ok, value}
+      _ -> {:error, "invalid float string given for conversion"}
     end
   end
 
