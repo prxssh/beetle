@@ -42,7 +42,7 @@ defmodule Beetle.Transport.Client do
 
   alias Beetle.Command
   alias Beetle.Protocol.Encoder
-  alias Beetle.Server.TransactionManager
+  alias Beetle.Transaction.Manager, as: TransactionManager
 
   defmodule State do
     defstruct socket: nil, transaction_manager: TransactionManager.new()
@@ -66,10 +66,10 @@ defmodule Beetle.Transport.Client do
 
     case :gen_tcp.send(state.socket, response) do
       :ok ->
-        :inet.setopts(state.socket, [active: :once])
+        :inet.setopts(state.socket, active: :once)
         {:noreply, updated_state}
 
-      {:error, reason} -> 
+      {:error, reason} ->
         {:stop, reason, updated_state}
     end
   end
