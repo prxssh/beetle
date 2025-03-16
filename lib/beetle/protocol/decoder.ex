@@ -54,7 +54,6 @@ defmodule Beetle.Protocol.Decoder do
   alias Beetle.Utils
 
   @crlf "\r\n"
-  @crlf_size 2
 
   @spec decode(String.t(), [[String.t()]]) :: {:ok, [[String.t()]]} | {:error, String.t()}
   def decode(input, acc \\ [])
