@@ -41,11 +41,11 @@ defmodule Beetle.Transport.Client do
   require Logger
 
   alias Beetle.Command
+  alias Beetle.Transaction
   alias Beetle.Protocol.Encoder
-  alias Beetle.Transaction.Manager, as: TransactionManager
 
   defmodule State do
-    defstruct socket: nil, transaction_manager: TransactionManager.new()
+    defstruct socket: nil, transaction_manager: Transaction.new()
   end
 
   # === Client
@@ -55,7 +55,10 @@ defmodule Beetle.Transport.Client do
   # === Server
 
   @impl true
-  def init(socket), do: {:ok, %State{socket: socket}}
+  def init(socket) do
+    :inet.setopts(socket, active: :once)
+    {:ok, %State{socket: socket}}
+  end
 
   @impl true
   def handle_info({:tcp, _, data}, state) do

@@ -1,4 +1,4 @@
-defmodule Beetle.Transaction.Manager do
+defmodule Beetle.Transaction do
   @moduledoc """
   Manages transaction state and command queueing for a client session. It
   provides a clean abstraction for handling multi-step transaction.
