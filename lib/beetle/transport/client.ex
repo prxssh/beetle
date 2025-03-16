@@ -64,9 +64,14 @@ defmodule Beetle.Transport.Client do
       |> Command.parse()
       |> process_commands(state)
 
-    :gen_tcp.send(state.socket, response)
+    case :gen_tcp.send(state.socket, response) do
+      :ok ->
+        :inet.setopts(state.socket, [active: :once])
+        {:noreply, updated_state}
 
-    {:noreply, updated_state}
+      {:error, reason} -> 
+        {:stop, reason, updated_state}
+    end
   end
 
   @impl true
