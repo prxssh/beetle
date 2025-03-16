@@ -1,4 +1,4 @@
-defmodule Beetle.Server.ClientSupervisor do
+defmodule Beetle.Transport.ClientSupervisor do
   @moduledoc """
   Dynamically supervises TCP client connection processes.
 
@@ -18,7 +18,7 @@ defmodule Beetle.Server.ClientSupervisor do
   """
   @spec start_client(:gen_tcp.socket()) :: {:ok, pid()} | {:error, any()}
   def start_client(socket) do
-    child_spec = {Beetle.Server.Client, socket}
+    child_spec = {Beetle.Transport.Client, socket}
     DynamicSupervisor.start_child(__MODULE__, child_spec)
   end
 
@@ -28,7 +28,7 @@ defmodule Beetle.Server.ClientSupervisor do
   def init(_), do: DynamicSupervisor.init(strategy: :one_for_one)
 end
 
-defmodule Beetle.Server.Client do
+defmodule Beetle.Transport.Client do
   @moduledoc """
   Handles individual TCP client connections.
 
@@ -41,11 +41,11 @@ defmodule Beetle.Server.Client do
   require Logger
 
   alias Beetle.Command
+  alias Beetle.Transaction
   alias Beetle.Protocol.Encoder
-  alias Beetle.Server.TransactionManager
 
   defmodule State do
-    defstruct socket: nil, transaction_manager: TransactionManager.new()
+    defstruct socket: nil, transaction_manager: Transaction.new()
   end
 
   # === Client
@@ -55,7 +55,10 @@ defmodule Beetle.Server.Client do
   # === Server
 
   @impl true
-  def init(socket), do: {:ok, %State{socket: socket}}
+  def init(socket) do
+    :inet.setopts(socket, active: :once)
+    {:ok, %State{socket: socket}}
+  end
 
   @impl true
   def handle_info({:tcp, _, data}, state) do
@@ -64,9 +67,14 @@ defmodule Beetle.Server.Client do
       |> Command.parse()
       |> process_commands(state)
 
-    :gen_tcp.send(state.socket, response)
+    case :gen_tcp.send(state.socket, response) do
+      :ok ->
+        :inet.setopts(state.socket, active: :once)
+        {:noreply, updated_state}
 
-    {:noreply, updated_state}
+      {:error, reason} ->
+        {:stop, reason, updated_state}
+    end
   end
 
   @impl true
