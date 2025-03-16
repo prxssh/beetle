@@ -27,7 +27,7 @@ defmodule Beetle.Transport.Server do
 
   defstruct [
     :listen_socket,
-    :connections,
+    :connections
   ]
 
   @module __MODULE__
