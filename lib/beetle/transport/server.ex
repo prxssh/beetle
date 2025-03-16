@@ -189,13 +189,4 @@ defmodule Beetle.Transport.Server do
       :gen_tcp.close(conn.socket)
     end
   end
-
-  defp format_uptime(ms) do
-    seconds = div(ms, 1000)
-    minutes = div(seconds, 60)
-    hours = div(minutes, 60)
-    days = div(hours, 24)
-
-    "#{days}d #{rem(hours, 24)}h #{rem(minutes, 60)}m #{rem(seconds, 60)}s"
-  end
 end
