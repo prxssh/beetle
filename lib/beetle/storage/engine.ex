@@ -104,7 +104,7 @@ defmodule Beetle.Storage.Engine do
         {:noreply, updated_store}
 
       {:error, reason} ->
-        Logger.notice("#{__MODULE__}: log rotation failed, reason: #{inspect(reason)}")
+        Logger.error("#{__MODULE__}: log rotation failed, reason: #{inspect(reason)}")
         {:noreply, store}
     end
   end
@@ -118,12 +118,12 @@ defmodule Beetle.Storage.Engine do
         {:noreply, updated_store}
 
       {:error, reason} ->
-        Logger.notice("#{__MODULE__}: compaction failed, reason: #{inspect(reason)}")
+        Logger.error("#{__MODULE__}: compaction failed, reason: #{inspect(reason)}")
         {:noreply, store}
     end
   end
 
-  # ==== Private
+  ############### Private
 
   defp via_tuple(shard_id), do: {:via, Registry, {Beetle.ShardRegistry, shard_id}}
 

@@ -8,6 +8,11 @@ defmodule Beetle.Transaction do
   """
   alias Beetle.Command
 
+  @type t :: %__MODULE__{
+          queue: term(),
+          active: boolean()
+        }
+
   defstruct queue: :queue.new(), active: false
 
   @doc """
@@ -17,12 +22,12 @@ defmodule Beetle.Transaction do
   def new, do: %__MODULE__{}
 
   @doc "Begins a new transaction if one is not already active"
-  def begin(txn) when txn.active, do: {:error, "ERR multi calls can not be nested"}
-  def begin(txn), do: {:ok, {"OK", %__MODULE__{txn | active: true}}}
+  def begin(txn) when txn.active, do: {{:error, "ERR multi calls can not be nested"}, new()}
+  def begin(txn), do: {"OK", %__MODULE__{txn | active: true}}
 
   @doc "Discards the current transaction, clearing the command queue"
-  def discard(txn) when txn.active, do: {:ok, {"OK", new()}}
-  def discard(txn), do: {:error, "ERR DISCARD without MULTI"}
+  def discard(txn) when txn.active, do: {"OK", new()}
+  def discard(_txn), do: {{:error, "ERR DISCARD without MULTI"}, new()}
 
   @doc """
   Enqueues a command to be executed when the transaction is committed.
@@ -30,9 +35,9 @@ defmodule Beetle.Transaction do
   Commands are enqueued if a transaction is active.
   """
   def enqueue(txn, command) when txn.active,
-    do: {:ok, {"QUEUED", %__MODULE__{txn | queue: :queue.in(command, txn.queue)}}}
+    do: {"QUEUED", %__MODULE__{txn | queue: :queue.in(command, txn.queue)}}
 
-  def enqueue(_, _), do: {:error, "ERR queue command outside of multi"}
+  def enqueue(_, _), do: {{:error, "ERR queue command outside of multi"}, new()}
 
   @doc """
   Executes all queued commands in the transaction and returns the results.
@@ -42,9 +47,9 @@ defmodule Beetle.Transaction do
   """
   def execute(txn) when txn.active do
     commands = :queue.to_list(txn.queue)
-    updated_state = %__MODULE__{txn | active: false, queue: :queue.new()}
+    txn = %__MODULE__{txn | active: false, queue: :queue.new()}
 
-    {:ok, {Command.execute_transaction(command), updated_state}}
+    Command.execute(commands, txn)
   end
 
   def execute(_), do: {:error, "ERR EXEC without MULTI"}

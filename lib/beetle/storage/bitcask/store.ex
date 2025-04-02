@@ -11,10 +11,7 @@ defmodule Beetle.Storage.Bitcask do
   """
   require Logger
 
-  alias Beetle.Storage.Bitcask.{
-    Keydir,
-    Datafile
-  }
+  alias Beetle.Storage.Bitcask.{Keydir, Datafile}
 
   @typedoc """
   Represents bitcask database struct.
@@ -39,13 +36,7 @@ defmodule Beetle.Storage.Bitcask do
           active_file: Datafile.file_id_t(),
           file_handles: Datafile.map_t()
         }
-
-  defstruct(
-    path: "",
-    keydir: nil,
-    active_file: 0,
-    file_handles: nil
-  )
+  defstruct [:path, :keydir, :active_file, :file_handles]
 
   @doc "Creates a new Bitcask database instance at the specified path."
   @spec new(Path.t()) :: {:ok, t()} | {:error, any()}

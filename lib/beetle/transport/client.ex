@@ -40,19 +40,19 @@ defmodule Beetle.Transport.Client do
 
   require Logger
 
+  alias Beetle.Command.Types.Transaction
   alias Beetle.Command
   alias Beetle.Transaction
-  alias Beetle.Protocol.Encoder
 
   defmodule State do
     defstruct socket: nil, transaction_manager: Transaction.new()
   end
 
-  # === Client
+  ########### Client
 
   def start_link(socket), do: GenServer.start_link(__MODULE__, socket)
 
-  # === Server
+  ########### Server Callbaks
 
   @impl true
   def init(socket) do
@@ -62,18 +62,20 @@ defmodule Beetle.Transport.Client do
 
   @impl true
   def handle_info({:tcp, _, data}, state) do
-    {response, updated_state} =
-      data
-      |> Command.parse()
-      |> process_commands(state)
-
-    case :gen_tcp.send(state.socket, response) do
-      :ok ->
+    with {:ok, commands} <- Command.parse(data),
+         {response, updated_transaction_context} <-
+           Command.execute(commands, state.transaction_manager),
+         :ok <- :gen_tcp.send(state.socket, response) do
+      :inet.setopts(state.socket, active: :once)
+      {:noreply, %State{state | transaction_manager: updated_transaction_context}}
+    else
+      {:error, :command_parse, reason} ->
+        :gen_tcp.send(state.socket, reason)
         :inet.setopts(state.socket, active: :once)
-        {:noreply, updated_state}
+        {:noreply, %State{state | transaction_manager: Transaction.new()}}
 
       {:error, reason} ->
-        {:stop, reason, updated_state}
+        {:stop, reason, %State{state | transaction_manager: Transaction.new()}}
     end
   end
 
@@ -82,37 +84,4 @@ defmodule Beetle.Transport.Client do
 
   @impl true
   def handle_info({:tcp_error, _socket, reason}, state), do: {:stop, reason, state}
-
-  # === Private
-
-  defp process_commands({:ok, commands}, state) when length(commands) == 1 do
-    commands
-    |> List.first()
-    |> case do
-      %Command{command: "MULTI"} ->
-        TransactionManager.begin(state.transaction_manager)
-
-      %Command{command: "DISCARD"} ->
-        TransactionManager.discard(state.transaction_manager)
-
-      %Command{command: "EXEC"} ->
-        TransactionManager.execute(state.transaction_manager)
-
-      command ->
-        if state.transaction_manager.active,
-          do: TransactionManager.enqueue(state.transaction_manager, command),
-          else: {:ok, {Command.execute([command]), state.transaction_manager}}
-    end
-    |> case do
-      {:ok, {result, updated_transaction_manager}} ->
-        {result, %{state | transaction_manager: updated_transaction_manager}}
-
-      error ->
-        {Encoder.encode(error), %{state | transaction_manager: TransactionManager.new()}}
-    end
-  end
-
-  defp process_commands({:ok, commands}, state), do: {Command.execute(commands), state}
-
-  defp process_commands(error, state), do: {Encoder.encode(error), state}
 end

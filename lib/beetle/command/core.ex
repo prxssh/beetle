@@ -8,67 +8,72 @@ defmodule Beetle.Command do
   - `command`: Uppercase command name (for e.g. GET, SET, PING, etc)
   - `args`: List of command arguments
   """
-  alias Beetle.Protocol.Encoder
+  alias Beetle.Command.Types.Transaction
+  alias JasonV.Encoder
+  alias Beetle.Transaction
+  alias Beetle.Command.Mapping
+  alias Beetle.Protocol.{Decoder, Encoder}
 
   @type t :: %__MODULE__{
-          command: String.t(),
+          cmd: String.t(),
           args: [String.t()]
         }
 
-  defstruct [:command, :args]
+  defstruct [:cmd, :args]
 
   @doc "Parses RESP-encoded command string into Beetle Command struct"
-  @spec parse(String.t()) :: {:ok, [t()]} | {:error, String.t()}
+  @spec parse(String.t()) :: {:ok, [t()]} | {:error, :command_parse, String.t()}
   def parse(resp_encoded_command) do
     resp_encoded_command
-    |> Beetle.Protocol.Decoder.decode()
+    |> Decoder.decode()
     |> case do
       {:ok, decoded} ->
         {:ok,
          Enum.map(decoded, fn [cmd | args] ->
            %__MODULE__{
              args: args,
-             command: String.upcase(cmd)
+             cmd: String.upcase(cmd)
            }
          end)}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, :command_parse, Encoder.encode({:error, reason})}
     end
   end
 
-  @doc """
-  Executes a list of commands concurrently and returns combined RESP-encoded
-  results.
-
-  Commands are executed in parallel using `Task.async_stream/3` with - 2x
-  available CPU schedulers and in ordere to preserve the sequence.
-  """
-  @spec execute([t()], keyword()) :: String.t()
-  def execute(commands, opts \\ [])
-
-  def execute(commands, opts) when is_list(commands) do
-    results_stream =
+  @doc "Executes commands concurrently within a transaction context."
+  @spec execute([t()], Transaction.t()) :: {String.t(), Transaction.t()}
+  def execute(commands, transaction_context) do
+    {result, updated_transaction_context} =
       commands
-      |> Task.async_stream(&execute/1,
-        max_concurrency: System.schedulers_online() * 2,
-        ordered: true
+      |> Task.async_stream(
+        fn %__MODULE__{cmd: cmd, args: args} ->
+          case Mapping.get(cmd) do
+            {:with_context, module} -> module.with_context(transaction_context, cmd, args)
+            {:handle, module} -> {module.handle(cmd, args), nil}
+            error -> {error, nil}
+          end
+        end,
+        ordered: true,
+        max_concurrency: System.schedulers_online() * 2
       )
-      |> Stream.map(fn {:ok, result} -> result end)
+      |> Enum.reduce({[], transaction_context}, fn
+        {:ok, {res, nil}}, {acc_result, txn_context} -> {[res | acc_result], txn_context}
+        {:ok, {res, txn_context}}, {acc_result, _} -> {[res | acc_result], txn_context}
+        stream_error, {acc_result, txn_context} -> {[stream_error | acc_result], txn_context}
+      end)
+      |> then(fn {res, txn} -> {Enum.reverse(res), txn} end)
 
-    if Keyword.get(opts, :transaction, false),
-      do: results_stream |> Enum.to_list() |> Encoder.encode(),
-      else: Enum.map_join(results_stream, "", &Encoder.encode/1)
+    response =
+      if transaction_context.active do
+        Enum.map_join(result, "", &Encoder.encode/1)
+      else
+        case result do
+          [res] -> Encoder.encode(res)
+          _ -> Encoder.encode(result)
+        end
+      end
+
+    {response, updated_transaction_context}
   end
-
-  def execute(%__MODULE__{command: command, args: args}, _) do
-    command
-    |> Beetle.Command.Mapping.get()
-    |> case do
-      {:ok, module} -> module.handle(command, args)
-      error -> error
-    end
-  end
-
-  def execute_transaction(commands), do: execute(commands, transaction: true)
 end

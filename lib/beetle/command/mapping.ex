@@ -20,15 +20,18 @@ defmodule Beetle.Command.Mapping do
     "DECR" => Types.String,
     "DECRBY" => Types.String,
     "INCR" => Types.String,
-    "INCRBY" => Types.String
+    "INCRBY" => Types.String,
+    # Transaction
+    "MULTI" => Types.Transaction,
+    "EXEC" => Types.Transaction,
+    "DISCARD" => Types.Transaction
   }
 
-  @doc "Gets the module responsible for handling a specific command"
-  @spec get(String.t()) :: {:ok, module()} | {:error, String.t()}
   def get(command) do
-    case Map.get(@commands, command) do
-      nil -> {:error, "ERR unkown command '#{command}'"}
-      module -> {:ok, module}
+    case @commands[command] do
+      nil -> {:error, "ERR unknown command '#{command}'"}
+      Types.Transaction -> {:with_context, Types.Transaction}
+      module -> {:handle, module}
     end
   end
 end

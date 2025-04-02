@@ -8,10 +8,10 @@ defmodule Beetle.Command.Behaviour do
   """
 
   @doc """
-  Handles a Redis command with its arguments.
+  Handles a Beetle command with its arguments.
 
   Parameters:
-  - command: Uppercase Redis command name (e.g. "GET", "SET")
+  - command: Uppercase Beetle command name (e.g. "GET", "SET")
   - args: List of command arguments
 
   Returns:
@@ -19,4 +19,25 @@ defmodule Beetle.Command.Behaviour do
   - Error: {:error, reason} tuple with error message
   """
   @callback handle(command :: String.t(), args :: [String.t()]) :: term() | {:error, String.t()}
+
+  @doc """
+  Handles a Beetle command with transaction context.
+  Optional callback for transaction-aware commands.
+
+  Parameters:
+  - command: Uppercase Beetle command name (e.g. "MULTI", "EXEC")
+  - args: List of command arguments
+  - context: Map containing transaction state and context information
+
+  Returns:
+  - Success: Term representing command result
+  - Error: {:error, reason} tuple with error message 
+  """
+  @callback with_context(
+              ctx :: Beetle.Transaction.t(),
+              command :: String.t(),
+              args :: [String.t()]
+            ) :: {term(), Beetle.Transaction.t()}
+
+  @optional_callbacks [with_context: 3, handle: 2]
 end

@@ -11,7 +11,7 @@ defmodule Beetle.Protocol.DecoderTest do
     test "rejects non-binary input" do
       assert {:error, "input must be a binary"} = Decoder.decode(123)
       assert {:error, "input must be a binary"} = Decoder.decode(:atom)
-      assert {:error, "input must be a binary"} = Decoder.decode(['list'])
+      assert {:error, "input must be a binary"} = Decoder.decode([~c"list"])
       assert {:error, "input must be a binary"} = Decoder.decode(%{})
     end
   end
