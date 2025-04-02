@@ -32,7 +32,6 @@ defmodule Beetle.Transport.Server do
 
   @module __MODULE__
 
-  @max_connections 10
   @accept_timeout :timer.seconds(1)
   @max_restart_frequency :timer.seconds(1)
   @acceptor_pool_size System.schedulers_online() * 2
@@ -103,7 +102,7 @@ defmodule Beetle.Transport.Server do
 
   @impl true
   def handle_call(:get_listen_socket, _from, state) do
-    {:reply, state.listen_socket}
+    {:reply, state.listen_socket, state}
   end
 
   @impl true
@@ -176,9 +175,9 @@ defmodule Beetle.Transport.Server do
          :ok <- :gen_tcp.controlling_process(client_socket, client_pid) do
       GenServer.cast(server_pid, {:client_connected, client_pid, client_socket})
     else
-      {:error, reason} ->
+      {:error, _reason} ->
         :gen_tcp.close(client_socket)
-        {:stop, reason, client_socket}
+        :error
     end
   end
 
@@ -190,3 +189,4 @@ defmodule Beetle.Transport.Server do
     end
   end
 end
+

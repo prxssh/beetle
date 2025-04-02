@@ -44,7 +44,6 @@ defmodule Beetle.Command do
   @doc "Executes commands concurrently within a transaction context."
   @spec execute([t()], Transaction.t()) :: {String.t(), Transaction.t()}
   def execute(commands, transaction_context) do
-    {result, updated_transaction_context} =
       commands
       |> Task.async_stream(
         fn %__MODULE__{cmd: cmd, args: args} ->
@@ -57,23 +56,10 @@ defmodule Beetle.Command do
         ordered: true,
         max_concurrency: System.schedulers_online() * 2
       )
-      |> Enum.reduce({[], transaction_context}, fn
-        {:ok, {res, nil}}, {acc_result, txn_context} -> {[res | acc_result], txn_context}
-        {:ok, {res, txn_context}}, {acc_result, _} -> {[res | acc_result], txn_context}
-        stream_error, {acc_result, txn_context} -> {[stream_error | acc_result], txn_context}
+      |> Enum.reduce({"", transaction_context}, fn
+        {:ok, {res, nil}}, {acc_result, txn_context} -> {acc_result <> res, txn_context}
+        {:ok, {res, txn_context}}, {acc_result, _} -> {acc_result <> res, txn_context}
+        stream_error, {acc_result, txn_context} -> {acc_result <> Encoder.encode(stream_error), txn_context}
       end)
-      |> then(fn {res, txn} -> {Enum.reverse(res), txn} end)
-
-    response =
-      if transaction_context.active do
-        Enum.map_join(result, "", &Encoder.encode/1)
-      else
-        case result do
-          [res] -> Encoder.encode(res)
-          _ -> Encoder.encode(result)
-        end
-      end
-
-    {response, updated_transaction_context}
   end
 end

@@ -8,6 +8,7 @@ defmodule Beetle.Command.Mapping do
     # Miscellaneous
     "PING" => Types.Misc,
     "TTL" => Types.Misc,
+    "CONFIG" => Types.Misc,
     # String
     "GET" => Types.String,
     "SET" => Types.String,
