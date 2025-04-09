@@ -33,14 +33,14 @@ defmodule Beetle.Config.Parser do
           log_file_size: pos_integer(),
           storage_directory: String.t(),
           database_shards: pos_integer(),
-          merge_internal: pos_integer() | nil,
+          merge_interval: pos_integer() | nil,
           log_rotation_interval: pos_integer() | nil
         }
 
   defstruct(
     port: 6969,
     log_file_size: 5 * 1024 * 1024,
-    merge_internal: :timer.minutes(30),
+    merge_interval: :timer.minutes(30),
     log_rotation_interval: :timer.minutes(10),
     database_shards: System.schedulers_online(),
     storage_directory: Path.expand("~/.local/share/beetle")
