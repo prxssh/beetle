@@ -21,9 +21,3 @@ beetle-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
-
-.lexical/
-
-.DS_Store
-
-example/db
