@@ -80,7 +80,7 @@ defmodule Beetle.Config.Parser do
   defp parse_line(line, config) do
     case String.split(line, " ", parts: 2) do
       [key, value] ->
-        key = key |> String.trim() |> String.to_atom()
+        key = key |> String.trim() |> String.downcase() |> String.to_atom()
         value = String.trim(value)
 
         update_config(config, key, value)
