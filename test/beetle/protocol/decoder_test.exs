@@ -148,7 +148,7 @@ defmodule Beetle.Protocol.DecoderTest do
 
   describe "Big Number decoding" do
     test "decodes a big number" do
-      assert {:ok, [9223372036854775807]} = Decoder.decode("(9223372036854775807\r\n")
+      assert {:ok, [9_223_372_036_854_775_807]} = Decoder.decode("(9223372036854775807\r\n")
     end
   end
 
@@ -169,11 +169,14 @@ defmodule Beetle.Protocol.DecoderTest do
     end
 
     test "decodes a complex map" do
-      input = "%2\r\n+user\r\n*2\r\n+name\r\n+John\r\n+stats\r\n%2\r\n+points\r\n:100\r\n+level\r\n:5\r\n"
+      input =
+        "%2\r\n+user\r\n*2\r\n+name\r\n+John\r\n+stats\r\n%2\r\n+points\r\n:100\r\n+level\r\n:5\r\n"
+
       expected = %{
         "user" => ["name", "John"],
         "stats" => %{"points" => 100, "level" => 5}
       }
+
       assert {:ok, [^expected]} = Decoder.decode(input)
     end
 
