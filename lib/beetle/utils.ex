@@ -11,4 +11,11 @@ defmodule Beetle.Utils do
       _ -> {:error, "value is not integer or out of range"}
     end
   end
+
+  @spec serialize(term()) :: binary()
+  def serialize(term), do: :erlang.term_to_binary(term, [:deterministic, :compressed])
+
+  @spec deserialize(binary()) :: {:ok, term()} | {:error, String.t()}
+  def deserialize(binary) when is_binary(binary), do: {:ok, :erlang.binary_to_term(binary)}
+  def deserialize(_), do: {:error, "MALFORMED_ERLANG_BINARY"}
 end
