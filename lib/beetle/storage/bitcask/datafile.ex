@@ -66,7 +66,7 @@ defmodule Beetle.Storage.Bitcask.Datafile do
          {:ok, file_size} <- file_size(reader) do
       {:ok, %__MODULE__{writer: writer, reader: reader, offset: file_size}}
     else
-      {:error, reason} -> {:error, reason}
+      {:error, reason} -> {:error, inspect(reason)}
     end
   end
 
@@ -86,13 +86,13 @@ defmodule Beetle.Storage.Bitcask.Datafile do
 
       case new(path) do
         {:ok, handle} -> {:cont, {:ok, Map.put(acc, file_id, handle)}}
-        {:error, reason} -> {:halt, {:error, reason}}
+        error -> {:halt, error}
       end
     end)
   end
 
   @doc "Closes both read and write handles for the datafile"
-  @spec close(t()) :: :ok | {:error, String.t()}
+  @spec close(t()) :: :ok | {:error, term()}
   def close(datafile) do
     with :ok <- sync(datafile),
          :ok <- :file.close(datafile.writer),
@@ -108,11 +108,12 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   def sync(%__MODULE__{writer: writer}), do: :file.sync(writer)
 
   @doc "Constructs a full path for a datafile with the given `file_id`."
-  @spec path(String.t(), pos_integer()) :: String.t()
+  @spec path(String.t() | charlist(), non_neg_integer()) :: binary()
   def path(path, file_id), do: Path.join(path, "beetle_#{file_id}.db")
 
   @doc "Get an entry from the datafile stored at `pos` having `size`."
-  @spec get(t(), non_neg_integer(), non_neg_integer()) :: {:ok, t()} | {:error, term()}
+  @spec get(t(), non_neg_integer(), non_neg_integer()) ::
+          {:ok, DatafileEntry.t() | nil} | {:error, String.t()}
   def get(%__MODULE__{reader: reader}, pos, size) do
     case DatafileEntry.get(reader, pos, size) do
       {:ok, entry} -> {:ok, entry}
@@ -126,14 +127,14 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   Returns the datafile with updated write offset upon success.
   """
   @spec write(t(), DatafileEntry.key_t(), DatafileEntry.value_t(), Bitcask.put_opts_t()) ::
-          {:ok, t()} | {:error, term()}
+          {:ok, t()} | {:error, String.t()}
   def write(datafile, key, value, opts) do
     entry = DatafileEntry.new(key, value, opts[:expiration])
     size = byte_size(entry)
 
     case :file.write(datafile.writer, entry) do
       :ok -> {:ok, %__MODULE__{datafile | offset: datafile.offset + size}}
-      {:error, reason} -> {:error, reason}
+      {:error, reason} -> {:error, inspect(reason)}
     end
   end
 
@@ -275,7 +276,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
          {:ok, entry} <- decode_entry(binary),
          false <- expired?(entry.expiration),
          false <- deleted?(entry.value) do
-      {:ok, entry.value}
+      {:ok, entry}
     else
       true -> {:ok, nil}
       :eof -> {:error, "EOF_REACHED"}

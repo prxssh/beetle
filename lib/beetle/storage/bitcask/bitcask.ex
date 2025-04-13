@@ -65,10 +65,10 @@ defmodule Beetle.Storage.Bitcask do
   def close(store) do
     with :ok <- Keydir.persist(store.keydir, store.path),
          :ok <-
-           Enum.reduce_while(store.file_handles, :ok, fn {_, file_handle}, acc ->
+           Enum.reduce_while(store.file_handles, :ok, fn {_, file_handle}, _acc ->
              case Datafile.close(file_handle) do
-               :ok -> {:cont, acc}
                {:error, reason} -> {:halt, {:error, reason}}
+               :ok -> {:cont, :ok}
              end
            end) do
       :ok
@@ -78,13 +78,13 @@ defmodule Beetle.Storage.Bitcask do
   end
 
   @doc "Retrieves the entry stored against a key from the Bitcask database."
-  @spec get(t(), Datafile.Entry.key_t()) :: Datafile.Entry.t() | nil
+  @spec get(t(), Datafile.Entry.key_t()) :: {:ok, Datafile.Entry.t() | nil} | {:error, String.t()}
   def get(store, key) do
     case Keydir.get(store.keydir, key) do
       nil ->
-        nil
+        {:ok, nil}
 
-      [file_id: file_id, value_pos: pos, value_size: size] ->
+      %{file_id: file_id, value_pos: pos, value_size: size} ->
         datafile = store.file_handles[file_id]
         Datafile.get(datafile, pos, size)
     end
@@ -106,12 +106,13 @@ defmodule Beetle.Storage.Bitcask do
       {:ok, updated_datafile} ->
         file_handles = Map.put(store.file_handles, file_id, updated_datafile)
 
-        updated_keydir =
-          Keydir.put(store.keydir, key,
-            file_id: file_id,
-            value_pos: active_datafile.offset,
-            value_size: updated_datafile.offset - active_datafile.offset
-          )
+        keydir_value = %{
+          file_id: file_id,
+          value_pos: active_datafile.offset,
+          value_size: updated_datafile.offset - active_datafile.offset
+        }
+
+        updated_keydir = Keydir.put(store.keydir, key, keydir_value)
 
         {:ok, %__MODULE__{store | file_handles: file_handles, keydir: updated_keydir}}
 
@@ -166,7 +167,7 @@ defmodule Beetle.Storage.Bitcask do
          :ok <- remove_stale_datafiles(store.path),
          :ok <- :file.rename(merge_dir, Datafile.path(store.path, 0)),
          :ok <- :file.del_dir_r(merge_dir),
-         :ok <- Keydir.persist(merge_dir, store.path) do
+         :ok <- Keydir.persist(merge_keydir, store.path) do
       {:ok,
        %__MODULE__{
          store
@@ -224,6 +225,42 @@ defmodule Beetle.Storage.Bitcask do
       timeout: :timer.seconds(10),
       max_concurrency: System.schedulers_online() * 2
     )
+    |> Enum.reduce_while({merge_datafile, %{}}, fn
+      {:ok, stream}, {datafile, keydir} ->
+        case process_entries_batch(stream, datafile, keydir) do
+          {:error, reason} -> {:halt, {:error, reason}}
+          {updated_datafile, updated_keydir} -> {:cont, {updated_datafile, updated_keydir}}
+        end
+
+      {:exit, reason}, _ ->
+        {:halt, {:error, {:scan_failed, reason}}}
+    end)
+    |> case do
+      {:error, reason} -> {:error, reason}
+      {_, keydir} -> {:ok, keydir}
+    end
+  end
+
+  @spec process_entries_batch(Enumerable.t(), Datafile.t(), Keydir.t()) ::
+          {Datafile.t(), Keydir.t()} | {:error, String.t()}
+  defp process_entries_batch(entries, datafile, keydir) do
+    Enum.reduce_while(entries, {datafile, keydir}, fn entry, {datafile_acc, keydir_acc} ->
+      case Datafile.write(datafile_acc, entry.key, entry.value, expiration: entry.expiration) do
+        {:ok, updated_datafile} ->
+          keydir_value = %{
+            file_id: 0,
+            value_size: entry.size,
+            value_pos: updated_datafile.offset - datafile_acc.offset
+          }
+
+          updated_keydir = Keydir.put(keydir_acc, entry.key, keydir_value)
+
+          {:cont, {updated_datafile, updated_keydir}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
   end
 
   @spec remove_stale_datafiles(Path.t()) :: :ok

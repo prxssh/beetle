@@ -19,12 +19,12 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   alias Beetle.Storage.Bitcask.Datafile
 
   @typedoc "Metadata about value in the datafile"
-  @type value_t :: [
+  @type value_t :: %{
+          optional(:timestamp) => non_neg_integer(),
           file_id: Datafile.file_id_t(),
           value_pos: non_neg_integer(),
-          value_size: non_neg_integer(),
-          timestamp: non_neg_integer()
-        ]
+          value_size: non_neg_integer()
+        }
 
   @typedoc "Represents the keydir"
   @type t :: %{Datafile.Entry.key_t() => value_t()}
@@ -48,13 +48,14 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   @spec put(t(), String.t(), value_t()) :: t()
   def put(keydir, key, value) do
     value
-    |> Keyword.put(:timestamp, System.system_time(:millisecond))
+    |> Map.put(:timestamp, System.system_time(:millisecond))
     |> then(&Map.put(keydir, key, &1))
   end
 
-  def get(keydir, key, default_value \\ nil), do: Keyword.get(keydir, key, default_value)
+  @spec get(t(), String.t()) :: value_t() | nil
+  def get(keydir, key), do: keydir[key]
 
-  @spec persist(t(), Path.t()) :: :ok | {:error, term()}
+  @spec persist(t(), Path.t() | charlist()) :: :ok | {:error, term()}
   def persist(keydir, path) do
     path
     |> Path.join(@hints_file)
@@ -77,10 +78,10 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   defp validate_keydir(_), do: {:error, "MALFORMED_KEYDIR_FORMAT"}
 
   @spec valid_entry?({Datafile.Entry.key_t(), value_t()}) :: boolean()
-  defp valid_entry?({key, value}) when is_binary(key) and is_list(value) do
-    required_keys = [:file_id, :value_pos, :value_size]
+  defp valid_entry?({key, value}) when is_binary(key) and is_map(value) do
+    required_keys = [:file_id, :value_pos, :value_size, :timestamp]
 
-    with true <- Enum.all?(required_keys, &Keyword.has_key?(value, &1)),
+    with true <- Enum.all?(required_keys, &Map.has_key?(value, &1)),
          true <- is_integer(value.file_id) and value.file_id > -1,
          true <- is_integer(value.value_pos) and value.value_pos > -1,
          true <- is_integer(value.value_size) and value.value_size > -1 do
