@@ -6,9 +6,9 @@ defmodule Beetle.Storage.Bitcask.Keydir do
 
   A single entry in the keydir has the following structure:
 
-             -----------------------------------------------
+            ------------------------------------------------
     key --> | file_id | value_size | value_pos | timestamp |
-            -----------------------------------------------
+            ------------------------------------------------
 
   - `file_id`: the ID of the datafile containing the value
   - `value_size`: size of the store value in bytes

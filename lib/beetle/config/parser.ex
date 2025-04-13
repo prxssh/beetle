@@ -58,6 +58,7 @@ defmodule Beetle.Config.Parser do
   def read_config(path) do
     case File.read(path) do
       {:ok, data} ->
+        Logger.debug("#{__MODULE__} loaded config successfully: #{inspect(data)}")
         parse_config(data)
 
       {:error, reason} ->

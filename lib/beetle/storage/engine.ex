@@ -22,6 +22,10 @@ defmodule Beetle.Storage.Engine do
   def start_link(shard_id),
     do: GenServer.start_link(__MODULE__, shard_id, name: via_tuple(shard_id))
 
+  @doc """
+  Get the value stored at key in the database.
+  """
+  @spec get(String.t()) :: {:ok, Bitcask.Datafile.Entry.t() | nil} | {:error, String.t()}
   def get(key) do
     key
     |> get_shard()
@@ -29,6 +33,13 @@ defmodule Beetle.Storage.Engine do
     |> GenServer.call({:get, key})
   end
 
+  @doc """
+  Write a new key-value pair to the database with optional expiration.
+
+  KV pair is not persisted immediately, and will take some time to reflect in
+  the database since we're syncing writes every 2s.
+  """
+  @spec put(String.t(), term(), non_neg_integer()) :: :ok
   def put(key, value, expiration \\ 0) do
     key
     |> get_shard()
@@ -36,6 +47,12 @@ defmodule Beetle.Storage.Engine do
     |> GenServer.cast({:put, key, value, expiration})
   end
 
+  @doc """
+  Delete(s) keys from the database.
+
+  Returns the count of deleted keys.
+  """
+  @spec drop(String.t() | [String.t()]) :: non_neg_integer()
   def drop(keys) do
     keys
     |> List.wrap()
@@ -50,16 +67,22 @@ defmodule Beetle.Storage.Engine do
 
   @impl true
   def init(shard_id) do
-    path = Config.storage_directory() |> Path.join("shard_#{shard_id}") |> Kernel.<>("/")
+    path = Path.join(Config.storage_directory(), "shard_#{shard_id}/")
 
     case Bitcask.new(path) do
       {:ok, store} ->
         schedule_compaction()
         schedule_log_rotation()
 
+        Logger.debug("#{__MODULE__} started bitcask shard #{shard_id} successfully!")
+
         {:ok, store}
 
       {:error, reason} ->
+        Logger.error(
+          "#{__MODULE__} failed to start bitcask shard #{shard_id}, error: #{inspect(reason)}"
+        )
+
         {:stop, {:error, reason}}
     end
   end
@@ -85,6 +108,10 @@ defmodule Beetle.Storage.Engine do
   def handle_info(:log_rotation, store) do
     case Bitcask.log_rotation(store) do
       {:ok, updated_store} ->
+        Logger.debug(
+          "#{__MODULE__} log rotation performed successfully for database at path: #{store.path}"
+        )
+
         {:noreply, updated_store}
 
       {:error, reason} ->
@@ -97,6 +124,10 @@ defmodule Beetle.Storage.Engine do
   def handle_info(:compaction, store) do
     case Bitcask.compaction(store) do
       {:ok, updated_store} ->
+        Logger.debug(
+          "#{__MODULE__} compaction performed successfully for database at path: #{store.path}"
+        )
+
         {:noreply, updated_store}
 
       {:error, reason} ->
