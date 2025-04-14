@@ -58,7 +58,7 @@ defmodule Beetle.Config.Parser do
   def read_config(path) do
     case File.read(path) do
       {:ok, data} ->
-        Logger.debug("#{__MODULE__} loaded config successfully: #{inspect(data)}")
+        Logger.debug("#{__MODULE__} loaded config successfully from `#{path}`")
         parse_config(data)
 
       {:error, reason} ->
@@ -103,9 +103,11 @@ defmodule Beetle.Config.Parser do
     path = Path.expand(value)
     updated_config = %__MODULE__{config | storage_directory: path}
 
-    if File.exists?(path),
-      do: updated_config,
-      else: raise("storage directory not present at '#{value}'")
+    unless File.exists?(path) do
+      File.mkdir_p!(path)
+    end
+
+    updated_config
   end
 
   defp update_config(config, :database_shards, value) do
