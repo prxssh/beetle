@@ -38,7 +38,7 @@ defmodule Beetle.Transport.Server do
 
   @default_client_socket_opts [active: :once]
 
-  @accept_timeout :timer.seconds(1)
+  @accept_timeout :timer.seconds(5)
   @max_restart_frequency :timer.seconds(1)
   @acceptor_pool_size System.schedulers_online() * 2
 
@@ -73,7 +73,7 @@ defmodule Beetle.Transport.Server do
     updated_connection = Map.put(state.connections, ref, connection_ref)
 
     Logger.debug(
-      "#{__MODULE__} tcp client connected, pid: #{client_pid}, total_clients: #{map_size(updated_connection)}"
+      "#{__MODULE__} tcp client connected: total_clients: #{map_size(updated_connection)}"
     )
 
     {:noreply, %__MODULE__{state | connections: updated_connection}}
@@ -129,13 +129,9 @@ defmodule Beetle.Transport.Server do
         acceptor_loop(pid, socket)
 
       {:error, :timeout} ->
-        Logger.error("#{__MODULE__} tcp acceptor timed out, pid: #{pid}")
-
         acceptor_loop(pid, socket)
 
       {:error, :closed} ->
-        Logger.error("#{__MODULE__} tcp acceptor closed, pid: #{pid}")
-
         :normal
 
       {:error, reason} ->
@@ -155,7 +151,7 @@ defmodule Beetle.Transport.Server do
     else
       {:error, reason} ->
         Logger.error(
-          "#{__MODULE__} failed to handle new connection, pid: #{pid}, error: #{inspect(reason)}"
+          "#{__MODULE__} failed to handle new connection, pid: #{inspect(pid)}, error: #{inspect(reason)}"
         )
 
         :gen_tcp.close(client_socket)

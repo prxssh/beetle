@@ -25,7 +25,7 @@ defmodule Beetle.Protocol.Encoder do
 
   def encode(false), do: @resp_boolean_false
 
-  def encode({:error, reason}), do: IO.iodata_to_binary(["-", encode(reason), "\r\n"])
+  def encode({:error, reason}), do: IO.iodata_to_binary(["-", reason, "\r\n"])
 
   def encode(data) when is_float(data),
     do: IO.iodata_to_binary([",", Float.to_string(data), "\r\n"])

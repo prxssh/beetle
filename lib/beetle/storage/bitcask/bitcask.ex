@@ -43,7 +43,7 @@ defmodule Beetle.Storage.Bitcask do
   @doc "Creates a new Bitcask instance at the specified path"
   @spec new(Path.t()) :: {:ok, t()} | {:error, term()}
   def new(path) do
-    with :ok <- :filelib.ensure_dir(path),
+    with :ok <- File.mkdir_p(path),
          {:ok, datafiles} <- Datafile.open(path),
          {:ok, keydir} <- Keydir.new(path, datafiles),
          active_datafile_id <- map_size(datafiles) + 1,

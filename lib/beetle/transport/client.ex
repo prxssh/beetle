@@ -35,6 +35,8 @@ defmodule Beetle.Transport.Client do
   """
   use GenServer
 
+  alias Beetle.Command
+
   require Logger
 
   defmodule State do
@@ -56,12 +58,17 @@ defmodule Beetle.Transport.Client do
 
   @impl true
   def handle_info({:tcp, _, data}, state) do
-    Logger.debug("#{__MODULE__} client data received: #{inspect(data)}")
+    with {:ok, commands} <- Command.parse(data) |> IO.inspect(),
+         {response, context} <- Command.execute(%{}, commands) |> IO.inspect(),
+         :ok <- :gen_tcp.send(state.socket, response) do
+      :inet.setopts(state.socket, active: :once)
+      {:noreply, Map.merge(state, context)}
+    else
+      {:error, reason} ->
+        Logger.error("#{__MODULE__} failed to handle client command: #{inspect(reason)}")
 
-    :gen_tcp.send(state.socket, "hello")
-    :inet.setopts(state.socket, active: :once)
-
-    {:noreply, state}
+        {:stop, reason, state}
+    end
   end
 
   @impl true
