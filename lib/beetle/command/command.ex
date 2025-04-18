@@ -16,6 +16,7 @@ defmodule Beetle.Command do
   @spec parse(String.t()) :: {:ok, [t()]} | {:error, String.t()}
   def parse(resp_encoded_command) do
     dbg(resp_encoded_command)
+
     case Decoder.decode(resp_encoded_command) do
       {:ok, decoded} ->
         {:ok,

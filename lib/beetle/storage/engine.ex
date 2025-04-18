@@ -22,6 +22,15 @@ defmodule Beetle.Storage.Engine do
   def start_link(shard_id),
     do: GenServer.start_link(__MODULE__, shard_id, name: via_tuple(shard_id))
 
+  @spec get_value(String.t()) :: term() | {:error, String.t()}
+  def get_value(key) do
+    case get(key) do
+      {:ok, nil} -> nil
+      {:ok, %Bitcask.Datafile.Entry{value: value}} -> value
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @doc """
   Get the value stored at key in the database.
   """
