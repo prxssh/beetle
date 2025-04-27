@@ -5,7 +5,8 @@ defmodule Beetle.Command.Mapping do
   alias Beetle.Command.Types.ConnectionManagment
 
   @commands %{
-    "PING" => ConnectionManagment
+    "PING" => ConnectionManagment,
+    "ECHO" => ConnectionManagment
   }
 
   @spec get(String.t()) :: {:ok, module()} | {:error, String.t()}

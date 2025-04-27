@@ -18,4 +18,8 @@ defmodule Beetle.Utils do
   @spec deserialize(binary()) :: {:ok, term()} | {:error, String.t()}
   def deserialize(binary) when is_binary(binary), do: {:ok, :erlang.binary_to_term(binary)}
   def deserialize(_), do: {:error, "MALFORMED_ERLANG_BINARY"}
+
+  @spec error_command_arguments(String.t()) :: {:error, String.t()}
+  def error_command_arguments(command),
+    do: {:error, "ERR invalid number of arguments for '#{command}' command"}
 end
