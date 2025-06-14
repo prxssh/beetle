@@ -7,16 +7,7 @@ defmodule Beetle.Command.Behaviour do
   module implementing this behaviour.
   """
 
-  @doc """
-  Handles a Redis command with its arguments.
-
-  Parameters:
-  - command: Uppercase Redis command name (e.g. "GET", "SET")
-  - args: List of command arguments
-
-  Returns:
-  - Success: Term representing command result 
-  - Error: {:error, reason} tuple with error message
-  """
-  @callback handle(command :: String.t(), args :: [String.t()]) :: term() | {:error, String.t()}
+  @doc "Handles a Beetle command with its arguments."
+  @callback handle(ctx :: Beetle.Command.context_t(), cmd :: String.t(), args :: [String.t()]) ::
+              {term(), Beetle.Command.context_t()}
 end

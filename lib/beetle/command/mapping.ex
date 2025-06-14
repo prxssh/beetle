@@ -2,32 +2,17 @@ defmodule Beetle.Command.Mapping do
   @moduledoc """
   Mapping of commands to their respective modules
   """
-  alias Beetle.Command.Types
+  alias Beetle.Command.Types.ConnectionManagment
 
   @commands %{
-    # Miscellaneous
-    "PING" => Types.Misc,
-    "TTL" => Types.Misc,
-    # String
-    "GET" => Types.String,
-    "SET" => Types.String,
-    "DEL" => Types.String,
-    "APPEND" => Types.String,
-    "GETDEL" => Types.String,
-    "GETEX" => Types.String,
-    "GETRANGE" => Types.String,
-    "STRLEN" => Types.String,
-    "DECR" => Types.String,
-    "DECRBY" => Types.String,
-    "INCR" => Types.String,
-    "INCRBY" => Types.String
+    "PING" => ConnectionManagment,
+    "ECHO" => ConnectionManagment
   }
 
-  @doc "Gets the module responsible for handling a specific command"
   @spec get(String.t()) :: {:ok, module()} | {:error, String.t()}
-  def get(command) do
-    case Map.get(@commands, command) do
-      nil -> {:error, "ERR unkown command '#{command}'"}
+  def get(cmd) do
+    case @commands[cmd] do
+      nil -> {:error, "ERR unknown command '#{cmd}'"}
       module -> {:ok, module}
     end
   end

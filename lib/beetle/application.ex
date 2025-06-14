@@ -8,15 +8,14 @@ defmodule Beetle.Application do
     path = maybe_extract_path(System.argv())
 
     children = [
+      {Task.Supervisor, name: Beetle.TaskSupervisor},
       {Beetle.Config, path},
-      {Beetle.Server, []},
       {Beetle.Storage.Supervisor, []},
-      {Beetle.Server.ClientSupervisor, []}
+      {Beetle.Transport.Server, []},
+      {Beetle.Transport.ClientSupervisor, []}
     ]
 
-    opts = [strategy: :one_for_one, name: Beetle.Supervisor]
-
-    Supervisor.start_link(children, opts)
+    Supervisor.start_link(children, strategy: :one_for_one, name: Beetle.Supervisor)
   end
 
   defp maybe_extract_path([]), do: nil

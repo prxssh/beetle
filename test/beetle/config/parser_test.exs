@@ -1,142 +1,276 @@
 defmodule Beetle.Config.ParserTest do
   use ExUnit.Case, async: true
 
-  alias Beetle.Config.Parser
-
-  @example_config_path "example/beetle.conf"
-  @temp_dir Path.join(System.tmp_dir!(), "beetle_test_#{System.unique_integer([:positive])}")
+  alias Beetle.Config.Parser, as: ConfigParser
 
   setup do
-    File.mkdir_p!(@temp_dir)
+    tmp_dir = Path.join(System.tmp_dir(), "beetle_test_#{:rand.uniform(1000)}")
+    File.mkdir_p!(tmp_dir)
 
-    on_exit(fn -> File.rm_rf!(@temp_dir) end)
-    {:ok, temp_dir: @temp_dir}
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+
+    %{tmp_dir: tmp_dir}
   end
 
   describe "read_config/1" do
-    test "returns default configuration file when nil is provided" do
-      config = Parser.read_config(nil)
+    test "returns default configuration when nil is provided" do
+      config = ConfigParser.read_config(nil)
 
       assert config.port == 6969
       assert config.log_file_size == 5 * 1024 * 1024
-      assert config.merge_interval == :timer.minutes(30)
-      assert config.log_rotation_interval == :timer.minutes(30)
       assert config.database_shards == System.schedulers_online()
+      assert config.merge_interval == :timer.minutes(30)
+      assert config.log_rotation_interval == :timer.minutes(10)
       assert config.storage_directory == Path.expand("~/.local/share/beetle")
     end
 
-    test "reads and parses the example configuration file" do
-      config = Parser.read_config(@example_config_path)
+    test "returns default configuration when file does not exist" do
+      config = ConfigParser.read_config("/nonexistent/file.conf")
 
-      assert config.port == 5555
-      assert config.database_shards == 1
-      assert config.merge_interval == 60
-      assert config.log_rotation_interval == 60
-      assert config.log_file_size == 1 * 1024 * 1024
-      assert config.storage_directory == Path.expand("./example/db")
+      assert config.port == 6969
+      assert config.log_file_size == 5 * 1024 * 1024
+      assert config.database_shards == System.schedulers_online()
+      assert config.merge_interval == :timer.minutes(30)
+      assert config.log_rotation_interval == :timer.minutes(10)
+      assert config.storage_directory == Path.expand("~/.local/share/beetle")
     end
 
-    test "raises error on nonexistent file path" do
-      assert_raise UndefinedFunctionError, fn ->
-        Parser.read_config("nonexistent/config/path.conf")
+    test "parses valid configuration file", %{tmp_dir: tmp_dir} do
+      # Create a valid test configuration file
+      config_content = """
+      # Beetle Configuration
+      port 7070
+      storage_directory #{tmp_dir}
+      log_file_size 10MB
+      database_shards 8
+      merge_interval 1h
+      log_rotation_interval 30m
+      """
+
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
+
+      # Test the configuration
+      config = ConfigParser.read_config(config_path)
+
+      assert config.port == 7070
+      assert config.log_file_size == 10 * 1024 * 1024
+      assert config.database_shards == 8
+      # 1h in seconds
+      assert config.merge_interval == 3600
+      # 30m in seconds
+      assert config.log_rotation_interval == 1800
+      assert config.storage_directory == tmp_dir
+    end
+
+    test "sets intervals to nil when SKIP is specified", %{tmp_dir: tmp_dir} do
+      # Create a test configuration file with SKIP values
+      config_content = """
+      storage_directory #{tmp_dir}
+      merge_interval SKIP
+      log_rotation_interval SKIP
+      """
+
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
+
+      # Test the configuration
+      config = ConfigParser.read_config(config_path)
+
+      assert config.merge_interval == nil
+      assert config.log_rotation_interval == nil
+    end
+
+    test "raises error for invalid port configuration", %{tmp_dir: tmp_dir} do
+      # Create a test configuration file with invalid port
+      config_content = """
+      port invalid
+      storage_directory #{tmp_dir}
+      """
+
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
+
+      # Test the configuration raises error
+      assert_raise RuntimeError, fn ->
+        ConfigParser.read_config(config_path)
       end
     end
 
-    test "raises error on invalid port value", %{temp_dir: temp_dir} do
-      path = Path.join(temp_dir, "invalid_port.conf")
-      File.write!(path, "port invalid")
+    test "raises error for nonexistent storage directory", %{tmp_dir: tmp_dir} do
+      nonexistent_dir = Path.join(tmp_dir, "nonexistent")
 
-      assert_raise RuntimeError, fn -> Parser.read_config(path) end
+      # Create a test configuration file with nonexistent directory
+      config_content = """
+      storage_directory #{nonexistent_dir}
+      """
+
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
+
+      # Test the configuration raises error
+      assert_raise RuntimeError, fn ->
+        ConfigParser.read_config(config_path)
+      end
     end
-  end
 
-  test "raises error on invalid file size format", %{temp_dir: temp_dir} do
-    path = Path.join(temp_dir, "invalid_size.conf")
-    File.write!(path, "log_file_size 10ZB")
+    test "parses time intervals in seconds", %{tmp_dir: tmp_dir} do
+      config_content = """
+      storage_directory #{tmp_dir}
+      log_rotation_interval 60s
+      """
 
-    assert_raise RuntimeError, fn -> Parser.read_config(path) end
-  end
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
 
-  test "raises error on invalid time format", %{temp_dir: temp_dir} do
-    path = Path.join(temp_dir, "invalid_time.conf")
-    File.write!(path, "log_rotation_interval 10y")
+      config = ConfigParser.read_config(config_path)
+      assert config.log_rotation_interval == 60
+    end
 
-    assert_raise RuntimeError, fn -> Parser.read_config(path) end
-  end
+    test "parses time intervals in minutes", %{tmp_dir: tmp_dir} do
+      config_content = """
+      storage_directory #{tmp_dir}
+      log_rotation_interval 5m
+      """
 
-  test "ignores comments and empty lines", %{temp_dir: temp_dir} do
-    path = Path.join(temp_dir, "comments.conf")
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
 
-    content = """
-    # This is a comment
+      config = ConfigParser.read_config(config_path)
+      # 5 minutes in seconds
+      assert config.log_rotation_interval == 300
+    end
 
-    port 8080
+    test "parses time intervals in hours", %{tmp_dir: tmp_dir} do
+      config_content = """
+      storage_directory #{tmp_dir}
+      merge_interval 2h
+      """
 
-    # Another comment
-    log_file_size 2MB
-    """
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
 
-    File.write!(path, content)
+      config = ConfigParser.read_config(config_path)
+      # 2 hours in seconds
+      assert config.merge_interval == 7200
+    end
 
-    config = Parser.read_config(path)
-    assert config.port == 8080
-    assert config.log_file_size == 2 * 1024 * 1024
-  end
+    test "raises error for invalid time unit", %{tmp_dir: tmp_dir} do
+      config_content = """
+      storage_directory #{tmp_dir}
+      merge_interval 10d
+      """
 
-  test "handles various time units in configuration", %{temp_dir: temp_dir} do
-    path = Path.join(temp_dir, "time_units.conf")
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
 
-    content = """
-    log_rotation_interval 10s
-    """
+      assert_raise RuntimeError, fn ->
+        ConfigParser.read_config(config_path)
+      end
+    end
 
-    File.write!(path, content)
+    test "parses file size in KB", %{tmp_dir: tmp_dir} do
+      config_content = """
+      storage_directory #{tmp_dir}
+      log_file_size 512KB
+      """
 
-    config = Parser.read_config(path)
-    # 10 seconds
-    assert config.log_rotation_interval == 10
-  end
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
 
-  test "handles various file size units in configuration", %{temp_dir: temp_dir} do
-    # Test KB
-    kb_path = Path.join(temp_dir, "file_sizes_kb.conf")
-    File.write!(kb_path, "log_file_size 2KB")
+      config = ConfigParser.read_config(config_path)
+      assert config.log_file_size == 512 * 1024
+    end
 
-    kb_config = Parser.read_config(kb_path)
-    # 2 KB
-    assert kb_config.log_file_size == 2 * 1024
+    test "parses file size in MB", %{tmp_dir: tmp_dir} do
+      config_content = """
+      storage_directory #{tmp_dir}
+      log_file_size 2MB
+      """
 
-    # Test GB
-    gb_path = Path.join(temp_dir, "file_sizes_gb.conf")
-    File.write!(gb_path, "log_file_size 1GB")
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
 
-    gb_config = Parser.read_config(gb_path)
-    # 1 GB
-    assert gb_config.log_file_size == 1 * 1024 * 1024 * 1024
-  end
+      config = ConfigParser.read_config(config_path)
+      assert config.log_file_size == 2 * 1024 * 1024
+    end
 
-  test "ensures storage directory exists", %{temp_dir: temp_dir} do
-    path = Path.join(temp_dir, "storage_dir.conf")
-    dir_path = Path.join(temp_dir, "beetle_storage_test")
-    content = "storage_directory #{dir_path}"
-    File.write!(path, content)
+    test "parses file size in GB", %{tmp_dir: tmp_dir} do
+      config_content = """
+      storage_directory #{tmp_dir}
+      log_file_size 1GB
+      """
 
-    config = Parser.read_config(path)
-    assert config.storage_directory == Path.expand(dir_path)
-  end
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
 
-  test "ignores unknown configuration keys", %{temp_dir: temp_dir} do
-    path = Path.join(temp_dir, "unknown_keys.conf")
+      config = ConfigParser.read_config(config_path)
+      assert config.log_file_size == 1 * 1024 * 1024 * 1024
+    end
 
-    content = """
-    port 8080
-    unknown_setting value
-    """
+    test "raises error for invalid file size unit", %{tmp_dir: tmp_dir} do
+      config_content = """
+      storage_directory #{tmp_dir}
+      log_file_size 10TB
+      """
 
-    File.write!(path, content)
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
 
-    config = Parser.read_config(path)
-    assert config.port == 8080
-    assert config.log_file_size == 5 * 1024 * 1024
+      assert_raise RuntimeError, fn ->
+        ConfigParser.read_config(config_path)
+      end
+    end
+
+    test "ignores comments and empty lines", %{tmp_dir: tmp_dir} do
+      # Create a test configuration file with comments and empty lines
+      config_content = """
+      # This is a comment
+      port 9090
+
+      # Another comment
+      storage_directory #{tmp_dir}
+      """
+
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
+
+      config = ConfigParser.read_config(config_path)
+
+      assert config.port == 9090
+      assert config.storage_directory == tmp_dir
+    end
+
+    test "ignores malformed lines", %{tmp_dir: tmp_dir} do
+      # Create a test configuration file with malformed lines
+      config_content = """
+      port 9090
+      malformed_line
+      storage_directory #{tmp_dir}
+      """
+
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
+
+      config = ConfigParser.read_config(config_path)
+
+      assert config.port == 9090
+      assert config.storage_directory == tmp_dir
+    end
+
+    test "handles multiple consecutive spaces between key and value", %{tmp_dir: tmp_dir} do
+      config_content = """
+      port     9090
+      storage_directory     #{tmp_dir}
+      """
+
+      config_path = Path.join(tmp_dir, "beetle.conf")
+      File.write!(config_path, config_content)
+
+      config = ConfigParser.read_config(config_path)
+
+      assert config.port == 9090
+      assert config.storage_directory == tmp_dir
+    end
   end
 end

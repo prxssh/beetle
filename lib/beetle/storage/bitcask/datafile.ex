@@ -8,14 +8,15 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   immutable and are only used for reads. When the active datafile meets a size
   threshold, it is closed and a new active datafile is created.
   """
-  alias Beetle.Storage.Bitcask.Datafile.Entry
+  alias Beetle.Storage.Bitcask
+  alias Beetle.Storage.Bitcask.Datafile.Entry, as: DatafileEntry
 
   @typedoc """
-  Represents a datafile, which is a segment of an append-only log contaiing
-  key-value pairs. 
-
-  A datafile has both read and write handles and tracks its current write
-  offset. Only one datafile is active for writing at a time.
+  Represents a datafile, which is part of an append-only log containing
+  key-value pairs. Each datafile includes:
+    - `writer`: write handle
+    - `reader`: read handle
+    - `offset`: current write offset for the file
   """
   @type t :: %__MODULE__{
           writer: :file.io_device(),
@@ -24,10 +25,19 @@ defmodule Beetle.Storage.Bitcask.Datafile do
         }
 
   @typedoc """
-  Maps datafile IDs to their corresponding datafile structs. Used to track and
-  manage all historical datafiles in the system.
+  Identifies a specific datafile. Typically corresponds to the integer ID in
+  filenames like: "beetle_123.db".
   """
   @type file_id_t :: non_neg_integer()
+
+  @typedoc """
+  Maps a file_id to the actual `t()` struct. For example:
+    %{
+      1 => %Beetle.Storage.Bitcask.Datafile{...},
+      2 => %Beetle.Storage.Bitcask.Datafile{...},
+      ...
+    }
+  """
   @type map_t :: %{file_id_t() => t()}
 
   @default_read_buf_size 128 * 1024
@@ -37,33 +47,11 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   defstruct [:writer, :reader, :offset]
 
   @doc """
-  Opens all the datafile(s) at path for reading.
-
-  This is usually called at the initialization to load all older datafiles.
-  """
-  @spec open(Path.t()) :: {:ok, map_t()} | {:error, any()}
-  def open(path) do
-    path
-    |> Path.join("beetle_*.db")
-    |> Path.wildcard()
-    |> Enum.reduce_while({:ok, %{}}, fn path, {:ok, acc} ->
-      file_id = parse_datafile_id(path)
-
-      path
-      |> new()
-      |> case do
-        {:ok, handle} -> {:cont, {:ok, Map.put(acc, file_id, handle)}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  @doc """
-  Opens a datafile at the given `path` with both read and write access.
+  Opens a datafile at `path` with both read and write access.
 
   The file is opened in raw mode with buffered I/O for performance.
   """
-  @spec new(charlist() | String.t()) :: {:ok, t()} | {:error, atom()}
+  @spec new(Path.t()) :: {:ok, t()} | {:error, String.t()}
   def new(path) do
     with path <- to_charlist(path),
          {:ok, writer} <-
@@ -75,15 +63,36 @@ defmodule Beetle.Storage.Bitcask.Datafile do
            ]),
          {:ok, reader} <-
            :file.open(path, [:read, :raw, :binary, {:read_ahead, @default_read_buf_size}]),
-         {:ok, file_size} <- file_bytes(reader) do
+         {:ok, file_size} <- file_size(reader) do
       {:ok, %__MODULE__{writer: writer, reader: reader, offset: file_size}}
     else
-      {:error, reason} -> {:error, reason}
+      {:error, reason} -> {:error, inspect(reason)}
     end
   end
 
-  @doc "Closes both read and writer handles for a file"
-  @spec close(t()) :: :ok | {:error, atom()}
+  @doc """
+  Opens all the datafile(s) at `path` for reading. 
+
+  This is particularly useful at the database bootup when we need to load all
+  other datafiles.
+  """
+  @spec open(Path.t()) :: {:ok, map_t()} | {:error, String.t()}
+  def open(path) do
+    path
+    |> Path.join("beetle_*.db")
+    |> Path.wildcard()
+    |> Enum.reduce_while({:ok, %{}}, fn path, {:ok, acc} ->
+      file_id = parse_datafile_id(path)
+
+      case new(path) do
+        {:ok, handle} -> {:cont, {:ok, Map.put(acc, file_id, handle)}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  @doc "Closes both read and write handles for the datafile"
+  @spec close(t()) :: :ok | {:error, term()}
   def close(datafile) do
     with :ok <- sync(datafile),
          :ok <- :file.close(datafile.writer),
@@ -95,54 +104,45 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   end
 
   @doc "Flushes any pending writes to disk"
-  @spec sync(t()) :: :ok | {:error, any()}
-  def sync(datafile), do: :file.sync(datafile.writer)
+  @spec sync(t()) :: :ok | {:error, term()}
+  def sync(%__MODULE__{writer: writer}), do: :file.sync(writer)
 
-  @doc "Constructs the full path for a datafile with the given ID"
-  @spec build_path(String.t(), pos_integer()) :: String.t()
-  def build_path(path, file_id), do: Path.join(path, "beetle_#{file_id}.db")
+  @doc "Constructs a full path for a datafile with the given `file_id`."
+  @spec path(String.t() | charlist(), non_neg_integer()) :: binary()
+  def path(path, file_id), do: Path.join(path, "beetle_#{file_id}.db")
 
-  @doc "Fetches the entry from the datafile stored at a particular position."
+  @doc "Get an entry from the datafile stored at `pos` having `size`."
   @spec get(t(), non_neg_integer(), non_neg_integer()) ::
-          {:ok, Datafile.Entry.t()} | {:error, any()}
-  def get(datafile, pos, size) do
-    datafile.reader
-    |> Entry.get(pos, size)
-    |> case do
+          {:ok, DatafileEntry.t() | nil} | {:error, String.t()}
+  def get(%__MODULE__{reader: reader}, pos, size) do
+    case DatafileEntry.get(reader, pos, size) do
       {:ok, entry} -> {:ok, entry}
       {:error, reason} -> {:error, reason}
     end
   end
 
   @doc """
-  Writes an entry to the datafile and returns the updated datafile with its new
-  write position.
+  Writes a new entry to the datafile with the key, value, and expiration.
+
+  Returns the datafile with updated write offset upon success.
   """
-  @spec write(t(), Entry.key_t(), Entry.value_t(), non_neg_integer()) ::
-          {:ok, t(), non_neg_integer()} | {:error, any()}
-  def write(datafile, key, value, expiration) do
-    entry = Entry.new(key, value, expiration)
+  @spec write(t(), DatafileEntry.key_t(), DatafileEntry.value_t(), Bitcask.put_opts_t()) ::
+          {:ok, t()} | {:error, String.t()}
+  def write(datafile, key, value, opts) do
+    entry = DatafileEntry.new(key, value, opts[:expiration])
     size = byte_size(entry)
 
-    datafile.writer
-    |> :file.write(entry)
-    |> case do
-      :ok ->
-        {:ok, %{datafile | offset: datafile.offset + size}}
-
-      {:error, reason} ->
-        {:error, reason}
+    case :file.write(datafile.writer, entry) do
+      :ok -> {:ok, %__MODULE__{datafile | offset: datafile.offset + size}}
+      {:error, reason} -> {:error, inspect(reason)}
     end
   end
 
   @doc """
-  Scans and streams valid entries from a datafile.
+  Lazily scans the datafile and streams valid entries.
 
-  Uses `Stream.unfold/2` to lazily read entries from the datafile starting at
-  offset 0 up to :eof. Each valid entry is returned with its position and size
-  metadata. Deleted and expired entries are reject of the resulting stream.
-
-  Returns an enumerable of type `Entry.metadata_t`.
+  Entries are read from offset 0 up to the current write offset. Any entries
+  that are deleted or expired are rejected.
   """
   @spec scan_valid_entries(t()) :: Enumerable.t()
   def scan_valid_entries(datafile) do
@@ -151,21 +151,15 @@ defmodule Beetle.Storage.Bitcask.Datafile do
         nil
 
       current_offset ->
-        case Entry.read_raw(datafile.reader, current_offset) do
-          :eof ->
-            nil
-
-          {:error, _reason} ->
-            nil
-
-          {:ok, metadata} ->
-            {metadata, current_offset + metadata.size}
+        case DatafileEntry.read_raw(datafile.reader, current_offset) do
+          {:ok, metadata} -> {metadata, current_offset + metadata.size}
+          {:error, _reason} -> nil
         end
     end)
-    |> Stream.reject(& &1.is_stale)
+    |> Stream.reject(&is_nil/1)
   end
 
-  # ==== Private
+  ########## Private
 
   # Extracts the numeric ID from a datafile path (e.g. "beetle_123.db" -> 123).
   #
@@ -179,8 +173,8 @@ defmodule Beetle.Storage.Bitcask.Datafile do
   end
 
   # Gets the current file size from an open file handle
-  @spec file_bytes(:file.io_device()) :: {:ok, non_neg_integer()} | {:error, atom()}
-  defp file_bytes(io_device) do
+  @spec file_size(:file.io_device()) :: {:ok, non_neg_integer()} | {:error, atom()}
+  defp file_size(io_device) do
     case :file.read_file_info(io_device) do
       {:ok, {:file_info, size, _, _, _, _, _, _, _, _, _, _, _, _}} -> {:ok, size}
       error -> error
@@ -218,8 +212,8 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   @typedoc """
   Value can be any elixir term, though the interface exposed to the client only
-  allows for these value types -- string, hash, list, bitmap, bloom filter, and
-  set.
+  allows for these value types - string, hash, lists, set, sorted set, bitmaps,
+  and bitfields.
   """
   @type value_t :: term()
 
@@ -230,7 +224,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
           key_size: pos_integer(),
           value_size: pos_integer(),
           key: key_t(),
-          value: binary()
+          value: value_t()
         }
 
   @typedoc """
@@ -258,14 +252,14 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   defstruct [:crc, :expiration, :key_size, :value_size, :key, :value]
 
-  def deleted_sentinel, do: @tombstone_value
+  def tombstone_value, do: @tombstone_value
 
   @doc "Creates a new serialized entry for storage in the datafile"
   @spec new(key_t(), value_t(), non_neg_integer()) :: binary()
   def new(key, value, expiration) do
     key_size = byte_size(key)
-    serialized_value = parse_value(value)
-    value_size = byte_size(serialized_value)
+    serialized_value = serialize(value)
+    value_size = byte_size(value)
 
     entry = [<<expiration::64, key_size::32, value_size::32>>, key, serialized_value]
     checksum = :erlang.crc32(entry)
@@ -276,7 +270,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   @doc "Reads and decodes an entry from the datafile at the specified position"
   @spec get(:file.io_device(), non_neg_integer(), non_neg_integer()) ::
-          {:ok, t()} | {:error, term()}
+          {:ok, t() | nil} | {:error, String.t()}
   def get(io_device, pos, size) do
     with {:ok, binary} <- :file.pread(io_device, pos, size),
          {:ok, entry} <- decode_entry(binary),
@@ -285,7 +279,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
       {:ok, entry}
     else
       true -> {:ok, nil}
-      :eof -> {:error, :eof_reached}
+      :eof -> {:error, "EOF_REACHED"}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -299,7 +293,7 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
   keydir from the datafiles.
   """
   @spec read_raw(:file.io_device(), non_neg_integer()) ::
-          {:ok, metadata_t()} | :eof | {:error, term()}
+          {:ok, metadata_t()} | {:error, String.t()}
   def read_raw(io_device, pos) do
     with {:ok, <<_::32, _::64, key_size::32, value_size::32>>} <-
            :file.pread(io_device, pos, @header_size),
@@ -316,15 +310,14 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
          is_stale: expired?(entry.expiration) or deleted?(entry.value)
        }}
     else
-      :eof -> :eof
-      {:error, reason} -> {:error, reason}
+      :eof -> {:error, "EOF_REACHED"}
+      {:error, reason} -> {:error, inspect(reason)}
     end
   end
 
-  # === Private
+  ############### Private
 
-  @spec decode_entry(binary()) ::
-          {:ok, t()} | {:error, :entry_invalid_checksum | :entry_invalid_format}
+  @spec decode_entry(binary()) :: {:ok, t()} | {:error, String.t()}
   defp decode_entry(<<crc::32, expiration::64, key_size::32, value_size::32, rest::binary>>) do
     with <<key::binary-size(key_size), value::binary-size(value_size)>> <- rest,
          entry_binary =
@@ -341,8 +334,8 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
          expiration: expiration
        }}
     else
-      false -> {:error, :entry_invalid_checksum}
-      _ -> {:error, :entry_invalid_format}
+      false -> {:error, "ENTRY_INVALID_CHECKSUM"}
+      _ -> {:error, "ENTRY_INVALID_FORMAT"}
     end
   end
 
@@ -351,16 +344,4 @@ defmodule Beetle.Storage.Bitcask.Datafile.Entry do
 
   defp deleted?(@tombstone_value), do: true
   defp deleted?(_), do: false
-
-  defp parse_value(value) when is_bitstring(value) do
-    value
-    |> parse_integer()
-    |> case do
-      {:ok, integer} -> integer
-      _ -> value
-    end
-    |> serialize()
-  end
-
-  defp parse_value(value), do: serialize(value)
 end

@@ -4,23 +4,23 @@ defmodule Beetle.Storage.Bitcask.Keydir do
   Bitcask instance and maps it to an offset in the datafile where the log entry
   (value) resides.
 
-  A single entry in keydir looks like this:
-         ------------------------------------
-  key -> | file_id | value_size | value_pos |
-         ------------------------------------
+  A single entry in the keydir has the following structure:
 
-  Here, the metadata contains:
-  - `file_id`   : the ID of the datafile containing the value
-  - `value_size`: size of the stored value in bytes
-  - `value_pos` : offset position in the datafile where the value starts
+            ------------------------------------------------
+    key --> | file_id | value_size | value_pos | timestamp |
+            ------------------------------------------------
 
-  Generally, keydir also store timestamp but we don't have any need for it now.
+  - `file_id`: the ID of the datafile containing the value
+  - `value_size`: size of the store value in bytes
+  - `value_pos`: offset position in the datafile where the value resides
+  - `timestamp`: unix-time at which the entry was written in the keydir
   """
   import Beetle.Utils
   alias Beetle.Storage.Bitcask.Datafile
 
-  @typedoc "Metadata about stored value in the datafile"
+  @typedoc "Metadata about value in the datafile"
   @type value_t :: %{
+          optional(:timestamp) => non_neg_integer(),
           file_id: Datafile.file_id_t(),
           value_pos: non_neg_integer(),
           value_size: non_neg_integer()
@@ -31,11 +31,7 @@ defmodule Beetle.Storage.Bitcask.Keydir do
 
   @hints_file "beetle.hints"
 
-  @doc """
-  Creates a keydir, either reading from the hints file present at `path` or by
-  reading the entries from the older `datafiles`.
-  """
-  @spec new(String.t(), Bitcask.file_handle_t()) :: {:ok, t()} | {:error, any()}
+  @spec new(String.t(), Datafile.map_t()) :: {:ok, t()} | {:error, String.t()}
   def new(path, datafiles \\ %{}) do
     with hints_file_path <- path |> Path.join(@hints_file) |> to_charlist(),
          true <- File.exists?(hints_file_path),
@@ -49,40 +45,41 @@ defmodule Beetle.Storage.Bitcask.Keydir do
     end
   end
 
-  @doc "Writes the keydir to disk, creating a .hints file for faster bootups."
-  @spec persist(t(), Path.t()) :: :ok | {:error, any()}
+  @spec put(t(), String.t(), value_t()) :: t()
+  def put(keydir, key, value) do
+    value
+    |> Map.put(:timestamp, System.system_time(:millisecond))
+    |> then(&Map.put(keydir, key, &1))
+  end
+
+  @spec get(t(), String.t()) :: value_t() | nil
+  def get(keydir, key), do: keydir[key]
+
+  @spec persist(t(), Path.t() | charlist()) :: :ok | {:error, term()}
   def persist(keydir, path) do
     path
     |> Path.join(@hints_file)
     |> to_charlist()
-    |> :file.write(serialize(keydir))
+    |> :file.write_file(serialize(keydir))
   end
 
-  @doc "Puts a new entry in the keydir"
-  @spec put(t(), String.t(), value_t()) :: t()
-  def put(keydir, key, value), do: Map.put(keydir, key, value)
+  ########## Private
 
-  @doc "Gets the value stored for `key`."
-  @spec get(t(), String.t()) :: value_t() | nil
-  def get(keydir, key), do: Map.get(keydir, key)
-
-  # === Private
-
-  @spec validate_keydir(t()) :: :ok | {:error, :invalid_keydir_format}
+  @spec validate_keydir(t()) :: :ok | {:error, String.t()}
   defp validate_keydir(keydir) when is_map(keydir) do
     keydir
     |> Enum.all?(&valid_entry?/1)
     |> case do
       true -> :ok
-      false -> {:error, :invalid_keydir_format}
+      false -> {:error, "MALFORMED_KEYDIR_FORMAT"}
     end
   end
 
-  defp validate_keydir(_), do: {:error, :invalid_keydir_format}
+  defp validate_keydir(_), do: {:error, "MALFORMED_KEYDIR_FORMAT"}
 
   @spec valid_entry?({Datafile.Entry.key_t(), value_t()}) :: boolean()
   defp valid_entry?({key, value}) when is_binary(key) and is_map(value) do
-    required_keys = [:file_id, :value_pos, :value_size]
+    required_keys = [:file_id, :value_pos, :value_size, :timestamp]
 
     with true <- Enum.all?(required_keys, &Map.has_key?(value, &1)),
          true <- is_integer(value.file_id) and value.file_id > -1,
@@ -94,7 +91,9 @@ defmodule Beetle.Storage.Bitcask.Keydir do
     end
   end
 
-  @spec read_from_datafiles(Datafile.map_t()) :: {:ok, t()} | {:error, any()}
+  defp valid_entry?(_), do: false
+
+  @spec read_from_datafiles(Datafile.map_t()) :: {:ok, t()} | {:error, term()}
   defp read_from_datafiles(datafiles) do
     datafiles
     |> Task.async_stream(

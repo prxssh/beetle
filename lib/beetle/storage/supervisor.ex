@@ -8,11 +8,11 @@ defmodule Beetle.Storage.Supervisor do
 
   alias Beetle.Config
 
-  # ==== Client
+  ########## Client
 
   def start_link(_), do: Supervisor.start_link(__MODULE__, nil, name: __MODULE__)
 
-  # ==== Server
+  ########## Server
 
   @impl true
   def init(_) do
